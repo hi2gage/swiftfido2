@@ -12,5 +12,27 @@ struct FidoDeviceIO {
     var close: (() -> Void)?
     var read: (Int) -> Data?
     var write: (Data) -> Int
+
+    init(
+        open: (
+             (String) -> UnsafeMutableRawPointer?
+        )? = nil,
+        close: (() -> Void)? = nil,
+        read: @escaping (Int) -> Data?,
+        write: @escaping (Data) -> Int
+    ) {
+        self.open = open
+        self.close = close
+        self.read = read
+        self.write = write
+    }
+
+    init(
+    ) {
+        self.open = nil
+        self.close = nil
+        self.read = { _ in return nil }
+        self.write = { _ in return 1}
+    }
 }
 

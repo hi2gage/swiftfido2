@@ -25,4 +25,15 @@ enum FidoError: Error {
 
     case propertyRetrievalFailed
     case operationTimedOut
+
+    case failedToReadPendingFrame
+
+    case failedToCreatePipe
+    case errorNoValidCredentials
+
+    case inputErrorInvalidCredentialsArray
+    case libfido2ErrorInternal(Int32)
+
+    case missingRpId
+    case readTimedOut
 }

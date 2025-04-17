@@ -14,6 +14,9 @@ let package = Package(
 //        ),
         .executable(name: "cliSwiftFido2", targets: ["swiftfido2"])
     ],
+    dependencies: [
+        .package(path: "../SwiftCBOR/")
+    ],
     targets: [
 //        .binaryTarget(
 //            name: "libfido2",
@@ -22,7 +25,7 @@ let package = Package(
         .target(
             name: "swiftfido2",
             dependencies: [
-//                "libfido2"
+                "SwiftCBOR"
             ],
             path: "swiftfido2"
         ),
