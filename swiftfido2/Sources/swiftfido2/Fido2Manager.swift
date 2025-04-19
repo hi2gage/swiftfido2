@@ -349,10 +349,11 @@ public class Fido2Manager {
         device: FidoDeviceInfo,
         context: FidoDeviceContext,
         timeout: Int = 10_000
-    ) throws -> Data {
+    ) throws -> GetAssertionResponse {
         // readData already blocks until it has the *entire* CBOR payload
         let cborPayload = try readData(from: device, context: context, timeout: timeout)
-        return cborPayload
+//        debugPrintCBORResponse(cborPayload)
+        return try GetAssertionResponse(from: Ctap2Response(raw: cborPayload))
     }
 
 

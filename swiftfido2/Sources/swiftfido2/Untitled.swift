@@ -41,7 +41,7 @@ final public class FIDO {
 
         print("🖐️ Waiting for user touch...")
 
-        let cborResponse = try manager.waitForAssertionResponse(
+        let assertion = try manager.waitForAssertionResponse(
             device: device,
             context: context,
             timeout: 5000
@@ -59,12 +59,12 @@ final public class FIDO {
         let clientDataJsonData = Data(clientDataInput.json.utf8)
         let clientDataBase64Encoded = (clientDataJsonData).base64EncodedString()
 
-        debugPrintCBORResponse(cborResponse)
-
-        let signatureData = try extractSignature(from: cborResponse)
-        let authenticatorData = try extractAuthData(from: cborResponse)
-        let userHandle = try extractUserHandle(from: cborResponse)
-        let credentialID = try extractCredentialID(from: cborResponse)
+        let signatureData = assertion.signature.base64EncodedString()
+        let authenticatorData = assertion.authData.base64EncodedString()
+        guard let userHandle = assertion.userHandle else {
+            throw FidoError.missingUserHandle
+        }
+        let credentialID = assertion.credentialID.base64EncodedString()
 
         return ChallengeResponse(
             challenge: args.challenge,
@@ -80,53 +80,6 @@ final public class FIDO {
     enum FIDO2Error: Error {
       case invalidCBOR
       case missingSignature
-    }
-
-    /// Given the raw CBOR payload from the CTAP2 GetAssertion response,
-    /// decode it and pull out the "signature" byte string.
-    func extractSignature(from cborResponse: Data) throws -> String {
-        // Skip the one‑byte CTAP2 status (0x00)
-        let cborBytes = [UInt8](cborResponse.dropFirst())
-
-        // Decode the real CBOR map
-        guard let topLevel = try CBOR.decode(cborBytes),
-              case let .map(m) = topLevel
-        else {
-            throw FidoError.invalidCBOR
-        }
-
-        // Pull out the signature under key = 3
-        guard let sigItem = m[.unsignedInt(3)],
-              case let .byteString(bytes) = sigItem
-        else {
-            throw FidoError.missingSignature
-        }
-
-        // Base64‑encode and return
-        return Data(bytes).base64EncodedString()
-    }
-
-    func extractAuthData(from cborResponse: Data) throws -> String {
-        // 1) Skip the first status byte
-        let payloadBytes = Array(cborResponse.dropFirst())
-
-        // 2) Decode the remaining CBOR
-        guard let cborValue = try CBOR.decode(payloadBytes) else {
-            throw FidoError.invalidCBOR
-        }
-
-        // 3) Unwrap the top‑level map
-        guard case let CBOR.map(m) = cborValue else {
-            throw FidoError.invalidCBOR
-        }
-
-        // 4) Extract key=2 → authData
-        guard case let CBOR.byteString(bytes)? = m[.unsignedInt(2)] else {
-            throw FidoError.missingAuthData
-        }
-
-        // 5) Base64‑encode and return
-        return Data(bytes).base64EncodedString()
     }
 
     func extractUserHandle(from cborResponse: Data) throws -> String {
