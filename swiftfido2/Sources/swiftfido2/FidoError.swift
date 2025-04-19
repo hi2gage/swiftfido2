@@ -36,4 +36,9 @@ enum FidoError: Error {
 
     case missingRpId
     case readTimedOut
+
+    case missingAuthData
+    case invalidCBOR
+    case missingField(String)
+    case unexpectedFieldType(String)
 }

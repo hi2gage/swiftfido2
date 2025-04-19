@@ -149,25 +149,192 @@ func buildCtapHidFrame(channelId: UInt32, command: UInt8, payload: Data) -> [Dat
     return frames
 }
 
+import CryptoKit
+
+public struct ChallengeArgs {
+    public let rpId: String
+    public let validCredentials: [String]
+    public let devPin: String
+    public let challenge: String
+    public let origin: String
+
+    public init(rpId: String, validCredentials: [String], devPin: String, challenge: String, origin: String) {
+        self.rpId = rpId
+        self.validCredentials = validCredentials
+        self.devPin = devPin
+        self.challenge = challenge
+        self.origin = origin
+    }
+}
+
+extension ChallengeArgs {
+    func toGetAssertionPayload() throws -> Data {
+        // Step 1: Build clientDataJSON
+        let clientDataJSON = """
+        {"type":"webauthn.get","challenge":"\(FIDO2.base64ToBase64url(base64: challenge))","origin":"\(origin)","crossOrigin":true}
+        """
+        let clientData = Data(clientDataJSON.utf8)
+        let clientDataHash = Data(SHA256.hash(data: clientData))
+
+        // Step 2: Convert validCredentials to [FidoCredentialDescriptor]
+        let allowList: [FidoCredentialDescriptor] = try validCredentials.map { base64 in
+            guard let data = Data(base64Encoded: base64) else {
+                throw FidoError.inputErrorInvalidCredentialsArray
+            }
+            return FidoCredentialDescriptor(id: data)
+        }
+
+        // Step 3: Fill FidoAssertion with ChallengeArgs
+        var assertion = FidoAssertion()
+        assertion.setRpId(rpId)
+        assertion.clientData = clientData
+        assertion.clientDataHash = clientDataHash
+        assertion.allowList = allowList
+        assertion.userPresence = true
+        assertion.userVerification = false
+
+        // Step 4: Encode to CBOR and prepend CTAP2 command (0x02 for GetAssertion)
+        let cbor = try assertion.toCBOR()
+        var payload = Data([0x02])
+        payload.append(cbor)
+        return payload
+    }
+}
+
+final class FIDO {
+    public func respondToChallenge(args: ChallengeArgs) throws -> ChallengeResponse {
+        let manager = Fido2Manager()
+//        let initManager = Init
+
+        // Discover the first available FIDO HID device
+        guard let device = try manager.fidoHidDevices(max: 12).first else {
+            throw FidoError.noDevicesFound
+        }
+
+        print("🔌 Found device: \(device)")
+
+
+        // Open and prepare the HID device
+        var context = try manager.open(withHidDevice: device)
+        print("✅ Device opened")
+
+        let cid = try manager.performCTAPHIDInit(device: device.hidDevice, context: context)
+        print("channel Id: \(String(format: "%08x", cid))")
+        context.channelId = cid
+
+
+        let payload = try args.toGetAssertionPayload()
+
+        // 🧪 Print the CTAP2 payload in hex
+        print("📤 CTAP2 GetAssertion payload:")
+        print(payload.map { String(format: "%02x", $0) }.joined(separator: " "))
+
+
+        try manager.sendCtapHidCborCommand(
+            device: device.hidDevice,
+            context: context,
+            channelId: cid,
+            payload: payload,
+            reportId: 0
+        )
+
+
+        print("🖐️ Waiting for user touch...")
+
+        let cborResponse = try manager.waitForAssertionResponse(device: device, context: context, timeout: 5000)
+    //
+    //    let responseData = try manager.readData(from: device, context: context)
+    //    print("📥 Received response: \(responseData.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+        // Clean up when done
+        try manager.close(withHidDevice: device, context: &context)
+        print("🧹 Device closed")
+
+        let challenge = args.challenge
+        let clientDataInput = ClientData(challenge: FIDO2.base64ToBase64url(base64: challenge), origin: args.origin)
+        let clientDataJsonData = Data(clientDataInput.json.utf8)
+        let clientDataBase64Encoded = (clientDataJsonData).base64EncodedString()
+
+        return ChallengeResponse(
+            challenge: args.challenge,
+            clientData: clientDataBase64Encoded,
+            signatureData: "",
+            authenticatorData: "",
+            userHandle: "",
+            credentialID: "",
+            rpId: args.rpId
+        )
+    }
+
+    func getSignatureBase64(from responseMap: [CBOR: CBOR]) throws -> String {
+        let signatureKey = CBOR.unsignedInt(3)
+
+        guard let signatureCBOR = responseMap[signatureKey] else {
+            throw FidoError.missingField("signature")
+        }
+
+        guard case let .byteString(signatureBytes) = signatureCBOR else {
+            throw FidoError.unexpectedFieldType("signature")
+        }
+
+        let signatureData = Data(signatureBytes)
+        return signatureData.base64EncodedString()
+    }
+
+    private struct ClientData {
+        let type: String = "webauthn.get"
+        let challenge: String
+        let origin: String
+        let crossOrigin: Bool = true
+
+        var json: String {
+    """
+    {"type":"\(type)","challenge":"\(challenge)","origin":"\(origin)","crossOrigin":\(crossOrigin)}
+    """
+        }
+    }
+    private var fidoDev: OpaquePointer?
+
+    public init() {}
+}
 
 // Usage
 do {
-    let manager = Fido2Manager()
 
-    // Discover the first available FIDO HID device
-    guard let device = try manager.fidoHidDevices(max: 12).first else {
-        throw FidoError.noDevicesFound
-    }
+    let fido = FIDO()
 
-    print("🔌 Found device: \(device)")
+    let args = ChallengeArgs(
+        rpId: "webauthn.io",
+        validCredentials: [
+            "HzkKL3lwFsZO/yxT2ttc+vLDquHKwSlcoW/uXA4B2TwoFZzrPlO1WY49oXPtTqqh",
+            "aVmqqquRaXjXoc2O9ha6SZrm3Fo="
+        ],
+        devPin: "2593", // Not needed for this flow
+        challenge: "oJaYU7YrvrHfE5nwjHFKs6UeJtmgZPPNrcCMghhtYs47zorVV3QIYkxjcB2FwTvLotXuZKxHBr3bHjAjA8icsQ",
+        origin: "https://webauthn.io"
+    )
+
+    let response = try fido.respondToChallenge(args: args)
+
+    print(response)
 
 
-    // Open and prepare the HID device
-    var context = try manager.open(withHidDevice: device)
-    print("✅ Device opened")
-
-    let cid = try manager.performCTAPHIDInit(device: device.hidDevice, context: context)
-    print("channel Id: \(cid)")
+//    let manager = Fido2Manager()
+//
+//    // Discover the first available FIDO HID device
+//    guard let device = try manager.fidoHidDevices(max: 12).first else {
+//        throw FidoError.noDevicesFound
+//    }
+//
+//    print("🔌 Found device: \(device)")
+//
+//
+//    // Open and prepare the HID device
+//    var context = try manager.open(withHidDevice: device)
+//    print("✅ Device opened")
+//
+//    let cid = try manager.performCTAPHIDInit(device: device.hidDevice, context: context)
+//    print("channel Id: \(String(format: "%08x", cid))")
 //
 //    let args = ChallengeArgs(
 //        rpId: "apple.com",
@@ -176,7 +343,7 @@ do {
 //            "LYFamNBEyYpSMdk6/bZLzkdUpo++xOpf76Ripk932YKz1cqcIXMYaOw0KZPig6EC"
 //        ],
 //        devPin: "2593",
-//        challenge: "IbT4WvTPiHHx722yD5QEKeMbqDSMcjmIak8HXnr6fn0=",
+//        challenge: "zyHE/ehSnOzSbjSyMlWEeZBBEdcvE4QugAWYPkFIIgQ=",
 //        origin: "https://idmsa.apple.com"
 //    )
 //
@@ -188,43 +355,44 @@ do {
 //    print(payload.map { String(format: "%02x", $0) }.joined(separator: " "))
 //
 //
-//    let packets = buildCtapHidCborFrame(channelId: 0xffffffff, payload: payload)
-//    for (i, packet) in packets.enumerated() {
-//        try packet.withUnsafeBytes { rawBuffer in
-//            guard let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-//                throw FidoError.txError
-//            }
+//    try manager.sendCtapHidCborCommand(
+//        device: device.hidDevice,
+//        context: context,
+//        channelId: cid,
+//        payload: payload,
+//        reportId: 0
+//    )
 //
-//            let result = IOHIDDeviceSetReport(
-//                device.hidDevice,
-//                kIOHIDReportTypeOutput,
-//                0, // Report ID (0 unless using numbered reports)
-//                ptr,
-//                packet.count
-//            )
 //
-//            if result != kIOReturnSuccess {
-//                throw FidoError.txError
-//            }
+//    print("🖐️ Waiting for user touch...")
 //
-//            print("📨 Sent packet \(i)")
-//        }
-//    }
-//
-//    // 🧪 Next step: replace this with your own CTAP2 frame construction
-//    // Instead of fido_assert_set_rp, you'll need to build the CTAP2 GetAssertion command
-//    // which includes setting the rpId
-//    print("🛠️ Ready to begin CTAP2 GetAssertion frame construction...")
+//    let cborResponse = try manager.waitForAssertionResponse(device: device, context: context, timeout: 5000)
 //
 //    let responseData = try manager.readData(from: device, context: context)
 //    print("📥 Received response: \(responseData.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
+    
     // Clean up when done
-    try manager.close(withHidDevice: device, context: &context)
-    print("🧹 Device closed")
+//    try manager.close(withHidDevice: device, context: &context)
+//    print("🧹 Device closed")
 
 } catch {
     print("❌ Error: \(error)")
+}
+
+func getAuthDataBase64(from cborPayload: Data) throws -> String {
+    let decoded = try CBOR.decode([UInt8](cborPayload))
+
+    guard case let .map(cborMap) = decoded else {
+        throw FidoError.invalidCBOR
+    }
+
+    // CBOR key `1` is `authData`
+    guard case let .byteString(authDataBytes) = cborMap[CBOR.unsignedInt(1)] else {
+        throw FidoError.missingAuthData
+    }
+
+    let authData = Data(authDataBytes)
+    return authData.base64EncodedString()
 }
 
 

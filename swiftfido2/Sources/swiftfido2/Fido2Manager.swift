@@ -13,7 +13,9 @@ extension Fido2Manager {
     var CTAP_MAX_REPORT_LEN: Int { 64 }
 }
 
-class Fido2Manager {
+// MARK: Find Device:
+
+extension Fido2Manager {
     func fidoHidDevices(max: Int) throws -> [FidoDeviceInfo] {
         let manager: IOHIDManager = IOHIDManagerCreate(kCFAllocatorDefault, 0)
 
@@ -24,6 +26,53 @@ class Fido2Manager {
             throw FidoError.noDevicesFound
         }
     }
+}
+
+// MARK: Utilities
+
+extension Fido2Manager {
+    // Utility to get report length
+    private func getReportLength(device: IOHIDDevice, direction: Int) throws -> Int {
+        let key: CFString
+        let reportKey: String
+
+        if direction == 0 {
+            // Input report
+            key = kIOHIDMaxInputReportSizeKey as CFString
+            reportKey = "Input Report"
+        } else {
+            // Output report
+            key = kIOHIDMaxOutputReportSizeKey as CFString
+            reportKey = "Output Report"
+        }
+
+        // Use a utility function to get the report length
+        let reportLength = try getInt32(device: device, key: key)
+        if reportLength < 0 {
+            print("\(reportKey): Failed to retrieve report length")
+            throw FidoError.failedToGetReportLength
+        }
+
+        // Check for valid report length
+        guard reportLength <= CTAP_MAX_REPORT_LEN else {
+            print("\(reportKey): report length \(reportLength) exceeds maximum allowed")
+            throw FidoError.invalidReportLength
+        }
+
+        return Int(reportLength)
+    }
+
+    // Utility function to retrieve an integer value from the HID device
+    private func getInt32(device: IOHIDDevice, key: CFString) throws -> Int32 {
+        guard let result = IOHIDDeviceGetProperty(device, key) as? NSNumber else {
+            throw FidoError.propertyRetrievalFailed
+        }
+        return result.int32Value // Success, return the value
+    }
+}
+
+class Fido2Manager {
+
 
     func buildCtapHidCborFrame(channelId: UInt32, command: UInt8, payload: Data) -> [Data] {
         let reportSize = 64
@@ -136,11 +185,17 @@ class Fido2Manager {
         let command: UInt8 = 0x06 // CTAPHID_INIT
         let nonce = try Data.random(length: 8)
 
-        print("🔐 Nonce: \(nonce.map { String(format: "%02x", $0) }.joined(separator: " "))")
+        print("🔐 Nonce (generated): \(nonce.map { String(format: "%02x", $0) }.joined(separator: " "))")
 
         let frame = buildCtapHidInitFrame(channelId: broadcastCID, nonce: nonce)
-        try sendToHidDevice(device: device, reportID: reportID, data: frame, reportType: kIOHIDReportTypeOutput)
-        print("📨 INIT packet \(frame) sent")
+        print("📤 Sending INIT frame: \(frame.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+        try sendToHidDevice(
+            device: device,
+            reportID: reportID,
+            data: frame,
+            reportType: kIOHIDReportTypeOutput
+        )
 
         // Run I/O loop to allow the device to respond
         scheduleIOLoop(device: device, ms: 5000)
@@ -152,36 +207,50 @@ class Fido2Manager {
             timeoutMs: 5000
         )
 
-        print("📥 Raw INIT response: \(rawResponse.map { String(format: "%02x", $0) }.joined(separator: " "))")
+        print("📥 Raw INIT response (with report ID): \(rawResponse.map { String(format: "%02x", $0) }.joined(separator: " "))")
 
-        // Skip report ID byte at index 0
-        guard rawResponse.count >= 1 else {
-            print("❌ Response too short to contain report ID.")
+        // Ensure we have enough data to strip report ID
+        guard rawResponse.count > 1 else {
+            print("❌ Response too short to contain report ID and payload.")
             throw FidoError.internalError
         }
 
-        let ctapResponse = rawResponse.dropFirst() // skip report ID
-        guard ctapResponse.count >= 17 else {
-            print("⚠️ INIT response too short")
+        let ctapResponse = rawResponse.dropFirst() // skip report ID (byte 0)
+        print("📦 CTAPHID response (without report ID): \(ctapResponse.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+        guard ctapResponse.count >= 7 + CTAPHIDInitResponse.expectedLength else {
+            print("⚠️ INIT response too short. Got \(ctapResponse.count) bytes.")
             throw FidoError.internalError
         }
 
-        // Skip report ID + 7-byte CTAPHID header
-        let payload = rawResponse.dropFirst().dropFirst(7)
+        // Sanity check: display CTAPHID header
+        let header = ctapResponse.prefix(7)
+        print("📄 CTAPHID header: \(header.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+        // Extract and log INIT payload
+        let payload = ctapResponse[7..<7 + CTAPHIDInitResponse.expectedLength]
+        print("📨 Decoded INIT payload (17 bytes): \(payload.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
         let initResponse = try CTAPHIDInitResponse(data: Data(payload))
 
         // ✅ Compare echoed nonce
-        guard initResponse.nonce == nonce else {
+        if initResponse.nonce != nonce {
             print("🚨 Nonce mismatch!")
-            print("Expected: \(nonce.map { String(format: "%02x", $0) }.joined())")
-            print("Got     : \(initResponse.nonce.map { String(format: "%02x", $0) }.joined())")
+            print("🔐 Expected nonce: \(nonce.map { String(format: "%02x", $0) }.joined())")
+            print("📥 Received nonce: \(initResponse.nonce.map { String(format: "%02x", $0) }.joined())")
             throw FidoError.internalError
+        } else {
+            print("✅ Nonce match confirmed.")
         }
 
-        print("🆔 Assigned Channel ID: \(String(format: "%08x", initResponse.cid))")
+        print("🆔 Assigned Channel ID (from payload): \(String(format: "%08x", initResponse.cid))")
 
-        let newCID = ctapResponse[15..<19].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
-        print("🆔 Assigned Channel ID: \(String(format: "%08x", newCID))")
+        // Optionally extract channel ID directly from raw response for comparison
+        let cidBytes = ctapResponse[15..<19]
+        let newCID = Data(ctapResponse[15..<19]).withUnsafeBytes {
+            $0.load(as: UInt32.self).bigEndian
+        }
+        print("🆔 Assigned Channel ID (manual extract): \(String(format: "%08x", newCID))")
 
         return newCID
     }
@@ -317,44 +386,7 @@ class Fido2Manager {
         context = FidoDeviceContext()  // Or handle it differently if needed
     }
 
-    // Utility to get report length
-    private func getReportLength(device: IOHIDDevice, direction: Int) throws -> Int {
-        let key: CFString
-        let reportKey: String
 
-        if direction == 0 {
-            // Input report
-            key = kIOHIDMaxInputReportSizeKey as CFString
-            reportKey = "Input Report"
-        } else {
-            // Output report
-            key = kIOHIDMaxOutputReportSizeKey as CFString
-            reportKey = "Output Report"
-        }
-
-        // Use a utility function to get the report length
-        let reportLength = try getInt32(device: device, key: key)
-        if reportLength < 0 {
-            print("\(reportKey): Failed to retrieve report length")
-            throw FidoError.failedToGetReportLength
-        }
-
-        // Check for valid report length
-        guard reportLength <= CTAP_MAX_REPORT_LEN else {
-            print("\(reportKey): report length \(reportLength) exceeds maximum allowed")
-            throw FidoError.invalidReportLength
-        }
-
-        return Int(reportLength)
-    }
-
-    // Utility function to retrieve an integer value from the HID device
-    private func getInt32(device: IOHIDDevice, key: CFString) throws -> Int32 {
-        guard let result = IOHIDDeviceGetProperty(device, key) as? NSNumber else {
-            throw FidoError.propertyRetrievalFailed
-        }
-        return result.int32Value // Success, return the value
-    }
 
     func readData(
         from deviceInfo: FidoDeviceInfo,
@@ -367,14 +399,12 @@ class Fido2Manager {
         let startTime = Date()
         let timeoutSeconds = Double(timeout) / 1000.0
 
-
-
         repeat {
             bytesRead = read(context.reportPipe[0], &buffer, context.reportInLen)
 
             if bytesRead == -1 {
                 if errno == EAGAIN || errno == EWOULDBLOCK {
-                    usleep(50_000) // ⏸️ Sleep 50ms
+                    usleep(50_000)
                     if Date().timeIntervalSince(startTime) > timeoutSeconds {
                         throw FidoError.readTimedOut
                     }
@@ -389,6 +419,31 @@ class Fido2Manager {
                 let nonZeroBytes = buffer.prefix(bytesRead).contains { $0 != 0 }
                 if nonZeroBytes {
                     print("📥 Received data: \(buffer.prefix(bytesRead).map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+                    // ✅ Check for CBOR response
+                    let data = Data(buffer.prefix(bytesRead))
+                    let payload = data.dropFirst().dropFirst(7) // drop report ID and CTAPHID header
+
+                    if buffer[4] & 0x7F == 0x10 { // command byte masked
+                        do {
+                            let payloadBytes = [UInt8](payload)
+                            print("📦 Raw CBOR bytes: \(payloadBytes.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+                            let decoded = try CBOR.decode(payloadBytes)
+                            print("📦 Top-level decoded CBOR: \(decoded)")
+
+                            if case let .map(cborMap) = decoded {
+                                print("📦 Decoded CBOR Map:")
+                                for (key, value) in cborMap {
+                                    print("🔑 \(key) → \(value)")
+                                }
+                            } else {
+                                print("⚠️ Not a map — likely a raw response code: \(decoded)")
+                            }
+                        } catch {
+                            print("⚠️ CBOR decode error: \(error)")
+                        }
+                    }
                 }
                 break
             }
@@ -403,6 +458,43 @@ class Fido2Manager {
         return Data(buffer.prefix(bytesRead))
     }
 
+
+    func waitForAssertionResponse(
+        device: FidoDeviceInfo,
+        context: FidoDeviceContext,
+        timeout: Int = 10000
+    ) throws -> Data {
+        let deadline = Date().addingTimeInterval(Double(timeout) / 1000.0)
+
+        while Date() < deadline {
+            scheduleIOLoop(device: device.hidDevice, ms: 5000)
+
+            let response = try readData(from: device, context: context)
+
+            // Strip report ID and header
+            let ctaphid = response.dropFirst()
+            guard ctaphid.count >= 7 else { continue }
+
+            let cmd = ctaphid[4] & 0x7F
+            let len = Int(ctaphid[5]) << 8 | Int(ctaphid[6])
+            let payload = ctaphid.dropFirst(7).prefix(len)
+
+            switch cmd {
+            case 0x3B:
+                let status = payload.first ?? 0
+                print("⏳ KEEPALIVE: \(status == 1 ? "PROCESSING" : "TOUCH REQUIRED")")
+            case 0x10:
+                print("✅ Got CTAPHID_CBOR response!")
+                return Data(payload)
+            default:
+                print("⚠️ Unexpected response cmd: \(cmd)")
+            }
+        }
+
+        throw FidoError.readTimedOut
+    }
+
+
     func scheduleIOLoop(device: IOHIDDevice, ms: Int) {
         let loopID = CFRunLoopMode.defaultMode.rawValue
         // Schedule the device with the current run loop
@@ -414,7 +506,7 @@ class Fido2Manager {
         CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
 
         // Unschedule the device from the current run loop
-//        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
+        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
     }
 
     // Set up input report and removal callbacks
@@ -478,39 +570,6 @@ struct AssertionCBOR {
     let userHandle: Data?
     let credentialId: Data
 }
-
-//func decodeGetAssertionCBOR(_ payload: Data) throws -> AssertionCBOR {
-//    let cbor = try CBOR.decode(payload)
-//
-//    guard case let .map(map) = cbor else {
-//        throw FidoError.internalError
-//    }
-//
-//    guard
-//        let credential = map[CBOR.unsignedInt(1)],
-//        case let .map(credMap) = credential,
-//        let credId = credMap[CBOR.utf8String("id")],
-//        case let .byteString(idBytes) = credId,
-//        let authData = map[CBOR.unsignedInt(2)],
-//        case let .byteString(authBytes) = authData,
-//        let signature = map[CBOR.unsignedInt(3)],
-//        case let .byteString(sigBytes) = signature
-//    else {
-//        throw FidoError.internalError
-//    }
-//
-//    var userHandleData: Data? = nil
-//    if let userHandle = map[CBOR.unsignedInt(4)], case let .byteString(userBytes) = userHandle {
-//        userHandleData = Data(userBytes)
-//    }
-//
-//    return AssertionCBOR(
-//        authData: Data(authBytes),
-//        signature: Data(sigBytes),
-//        userHandle: userHandleData,
-//        credentialId: Data(idBytes)
-//    )
-//}
 
 struct CtapHidResponse {
     let channelId: UInt32
@@ -591,6 +650,7 @@ struct FidoDeviceContext {
 
     var reportPipe: [Int32] = [] // Assuming you want to store the pipe file descriptors
     var hidContext: HIDContext?
+    var channelId: UInt32?
 }
 
 
@@ -602,21 +662,42 @@ extension Fido2Manager {
         data: Data,
         reportType: IOHIDReportType
     ) throws {
-        var fullReport = Data([UInt8(reportID)]) // 1-byte report ID
-        fullReport.append(data)
-
-        let result = fullReport.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> IOReturn in
+        // ✅ Don't prepend reportID to the data
+        let result = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> IOReturn in
             let reportPtr = buffer.bindMemory(to: UInt8.self).baseAddress!
             return IOHIDDeviceSetReport(device, reportType, reportID, reportPtr, buffer.count)
         }
-
+        
         guard result == kIOReturnSuccess else {
             print("❌ Failed to send report. IOReturn: \(result)")
             throw FidoError.txError
         }
-
-        print("📨 INIT packet \(fullReport.count) bytes sent")
+        
+        print("📨 INIT packet \(data.count) bytes sent")
     }
+
+    func sendCtapHidCborCommand(
+        device: IOHIDDevice,
+        context: FidoDeviceContext,
+        channelId: UInt32,
+        payload: Data,
+        reportId: CFIndex = 0
+    ) throws {
+        let command: UInt8 = 0x10 // CTAPHID_CBOR
+        let packets = buildCtapHidCborFrame(channelId: channelId, command: command, payload: payload)
+
+        for (i, packet) in packets.enumerated() {
+            try sendToHidDevice(
+                device: device,
+                reportID: reportId,
+                data: packet,
+                reportType: kIOHIDReportTypeOutput
+            )
+            print("📨 Sent CBOR packet \(i)")
+        }
+        scheduleIOLoop(device: device, ms: 5000)
+    }
+
 
     func initializeCommunication(with device: FidoDeviceInfo) throws {
         let nonce = try Data.random(length: 8) // Generate nonce
@@ -634,204 +715,5 @@ extension Fido2Manager {
             reportType: reportType
         )
     }
-
 }
 
-extension Fido2Manager {
-    public func respondToChallenge(args: ChallengeArgs) throws -> ChallengeResponse {
-        let challenge = args.challenge
-        let rpId = args.rpId
-        let devPin = args.devPin
-
-        let clientDataInput = ClientData(challenge: FIDO2.base64ToBase64url(base64: challenge), origin: args.origin)
-        let clientDataJsonData = Data(clientDataInput.json.utf8)
-        let clientDataBase64Encoded = (clientDataJsonData).base64EncodedString()
-
-        let clientDataHash = [UInt8](SHA256.hash(data: clientDataJsonData))
-
-        let validCredentials = args.validCredentials
-
-        let fa: OpaquePointer? = nil
-
-        try setValidCredentials(validCredentials, forAssertion: fa)
-
-
-        // Find First HIDDevice
-        guard let device = try self.fidoHidDevices(max: 12).first else {
-            throw FidoError.noDevicesFound
-        }
-        let context = try self.open(withHidDevice: device)
-
-
-
-        guard let matchingCredId = try getMatchingCredId(
-            from: device,
-            validCredentials: validCredentials,
-            rpId: rpId,
-            devPin: devPin
-        ) else {
-            // The device has no valid credentials, we cannot continue
-            throw FidoError.errorNoValidCredentials
-        }
-
-        let signatureDataBase64Str = ""
-        let authDataBase64Str = ""
-        let userHandleBase64Str = ""
-
-
-        return ChallengeResponse(
-            challenge: challenge,
-            clientData: clientDataBase64Encoded,
-            signatureData: signatureDataBase64Str,
-            authenticatorData: authDataBase64Str,
-            userHandle: userHandleBase64Str,
-            credentialID: matchingCredId,
-            rpId: rpId
-        )
-    }
-
-    private func getMatchingCredId(
-        from device: FidoDeviceInfo, // Changed from OpaquePointer? to a more specific type
-        validCredentials: [String],
-        rpId: String,
-        devPin: String
-    ) throws -> String? {
-//        var residentKeys = fido_credman_rk_new() // Resident credentials array
-//        defer { fido_credman_rk_free(&residentKeys) }
-//
-//        // Call the function to get resident keys from the device
-//        let result = fido_credman_get_dev_rk(device.hidDevice, rpId, residentKeys, devPin)
-//        guard result == FIDO_OK else {
-//            throw FidoError.libfido2ErrorInternal(result)
-//        }
-//
-//        // Get the count of resident keys
-//        let rkCount = fido_credman_rk_count(residentKeys)
-//        for i in 0..<rkCount {
-//            let credential = fido_credman_rk(residentKeys, i)
-//
-//            // Get the credential ID pointer and length
-//            guard let idPtr = fido_cred_id_ptr(credential) else {
-//                throw FidoError.internalError
-//            }
-//            let idLen = fido_cred_id_len(credential)
-//
-//            // Create Data from the credential ID bytes
-//            let idData = Data(bytes: idPtr, count: idLen)
-//            let idBase64 = idData.base64EncodedString()
-//
-//            // Check if the base64 encoded ID is in the valid credentials
-//            if validCredentials.contains(idBase64) {
-//                return idBase64 // Return the first found, valid credential
-//            }
-//        }
-
-        return nil // No valid credentials found
-    }
-
-    private func setValidCredentials(_ validCredentials: [String], forAssertion fa: OpaquePointer?) throws {
-        for cred in validCredentials {
-            guard let credD = Data(base64Encoded: cred) else {
-                throw FidoError.inputErrorInvalidCredentialsArray
-            }
-            let ptr = credD.withUnsafeBytes { rawPtr in
-                return rawPtr.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            }
-//            fido_assert_allow_cred(fa, ptr, credD.count)
-        }
-    }
-}
-
-private struct ClientData {
-    let type: String = "webauthn.get"
-    let challenge: String
-    let origin: String
-    let crossOrigin: Bool = true
-
-    var json: String {
-"""
-{"type":"\(type)","challenge":"\(challenge)","origin":"\(origin)","crossOrigin":\(crossOrigin)}
-"""
-    }
-}
-
-public struct ChallengeResponse: Encodable {
-    public let challenge: String
-    public let clientData: String
-    public let signatureData: String
-    public let authenticatorData: String
-    public let userHandle: String
-    public let credentialID: String
-    public let rpId: String
-}
-
-public struct ChallengeArgs {
-    public let rpId: String
-    public let validCredentials: [String]
-    public let devPin: String
-    public let challenge: String
-    public let origin: String
-
-    public init(rpId: String, validCredentials: [String], devPin: String, challenge: String, origin: String) {
-        self.rpId = rpId
-        self.validCredentials = validCredentials
-        self.devPin = devPin
-        self.challenge = challenge
-        self.origin = origin
-    }
-}
-
-extension ChallengeArgs {
-    func toGetAssertionPayload() throws -> Data {
-        // Step 1: Build clientDataJSON
-        let clientDataJSON = """
-        {"type":"webauthn.get","challenge":"\(FIDO2.base64ToBase64url(base64: challenge))","origin":"\(origin)","crossOrigin":true}
-        """
-        let clientData = Data(clientDataJSON.utf8)
-        let clientDataHash = Data(SHA256.hash(data: clientData))
-
-        // Step 2: Convert validCredentials to [FidoCredentialDescriptor]
-        let allowList: [FidoCredentialDescriptor] = try validCredentials.map { base64 in
-            guard let data = Data(base64Encoded: base64) else {
-                throw FidoError.inputErrorInvalidCredentialsArray
-            }
-            return FidoCredentialDescriptor(id: data)
-        }
-
-        // Step 3: Fill FidoAssertion with ChallengeArgs
-        var assertion = FidoAssertion()
-        assertion.setRpId(rpId)
-        assertion.clientData = clientData
-        assertion.clientDataHash = clientDataHash
-        assertion.allowList = allowList
-        assertion.userPresence = true
-        assertion.userVerification = true
-
-        // Step 4: Encode to CBOR and prepend CTAP2 command (0x02 for GetAssertion)
-        let cbor = try assertion.toCBOR()
-        var payload = Data([0x02])
-        payload.append(cbor)
-        return payload
-    }
-}
-
-
-struct FIDO2 {
-    public static func base64urlToBase64(base64url: String) -> String {
-        var base64 = base64url
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        if base64.count % 4 != 0 {
-            base64.append(String(repeating: "=", count: 4 - base64.count % 4))
-        }
-        return base64
-    }
-
-    public static func base64ToBase64url(base64: String) -> String {
-        let base64url = base64
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-        return base64url
-    }
-}
