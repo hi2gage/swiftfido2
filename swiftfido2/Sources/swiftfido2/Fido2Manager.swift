@@ -28,6 +28,44 @@ extension Fido2Manager {
     }
 }
 
+extension Fido2Manager {
+    /// Polls for a FIDO/U2F key to be plugged in, printing a one‑time prompt if none is present.
+    ///
+    /// - Parameters:
+    ///   - maxDevices: how many devices `fidoHidDevices(max:)` will return
+    ///   - pollInterval: how long (in seconds) to wait between tries
+    ///   - prompt: the one‑time message to show if no key is present
+    /// - Returns: the first FidoDeviceInfo found
+    /// - Throws: any error from `fidoHidDevices(max:)`, except `noDevicesFound` is simply retried
+    func waitForDevice(
+      maxDevices: Int = 12,
+      pollInterval: TimeInterval = 1.0,
+      prompt: String = "🔍 No FIDO/U2F key detected. Please plug one in…"
+    ) throws -> [FidoDeviceInfo] {
+      var didPrintPrompt = false
+
+      while true {
+        do {
+          let list = try fidoHidDevices(max: maxDevices)
+            if list.count > 0 {
+                return list
+            }
+          // if we get an empty array rather than throwing
+        }
+        catch FidoError.noDevicesFound {
+          // swallow and retry
+        }
+
+        if !didPrintPrompt {
+          print(prompt)
+          didPrintPrompt = true
+        }
+
+        Thread.sleep(forTimeInterval: pollInterval)
+      }
+    }
+}
+
 // MARK: Utilities
 
 extension Fido2Manager {

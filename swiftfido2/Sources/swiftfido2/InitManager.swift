@@ -1,9 +1,3 @@
-//
-//  InitManager.swift
-//  swiftfido2
-//
-//  Created by Gage Halverson on 4/18/25.
-//
 import IOKit.hid
 import Foundation
 
@@ -11,195 +5,193 @@ class InitManager {
     func performCTAPHIDInit(
         device: IOHIDDevice,
         context: FidoDeviceContext,
-        reportID: CFIndex = 0
+        reportID: CFIndex = 0,
+        timeoutMs: Int = 5000
     ) throws -> UInt32 {
-        let broadcastCID: UInt32 = 0xFFFFFFFF
-        let command: UInt8 = 0x06 // CTAPHID_INIT
-        let nonce = try Data.random(length: 8)
+        let nonce = try Data.random(length: CTAPHIDInitFrame.nonceSize)
 
-        print("🔐 Nonce (generated): \(nonce.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        let frame = buildCtapHidInitFrame(channelId: broadcastCID, nonce: nonce)
-        print("📤 Sending INIT frame: \(frame.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        try sendToHidDevice(
-            device: device,
-            reportID: reportID,
-            data: frame,
-            reportType: kIOHIDReportTypeOutput
+        let initFrame = CTAPHIDInitFrame(
+            channelId: CTAPHIDInitFrame.broadcastCID,
+            nonce: nonce
         )
+        let report = HIDReport(initFrame)
+        try device.sendReport(report)
 
-        // Run I/O loop to allow the device to respond
-        scheduleIOLoop(device: device, ms: 5000)
+        // Wait for response
+        scheduleIOLoop(device: device, ms: timeoutMs)
 
-        // Wait for response on the pipe using poll
-        let rawResponse = try readFromPipe(
+        let response = try readInitResponse(
             fd: context.reportPipe[0],
             bufferSize: context.reportInLen,
-            timeoutMs: 5000
+            timeoutMs: timeoutMs
         )
 
-        print("📥 Raw INIT response (with report ID): \(rawResponse.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        // Ensure we have enough data to strip report ID
-        guard rawResponse.count > 1 else {
-            print("❌ Response too short to contain report ID and payload.")
-            throw FidoError.internalError
+        guard response.nonce == nonce else {
+            throw FidoError.nonceMismatch
         }
 
-        let ctapResponse = rawResponse.dropFirst() // skip report ID (byte 0)
-        print("📦 CTAPHID response (without report ID): \(ctapResponse.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        guard ctapResponse.count >= 7 + CTAPHIDInitResponse.expectedLength else {
-            print("⚠️ INIT response too short. Got \(ctapResponse.count) bytes.")
-            throw FidoError.internalError
-        }
-
-        // Sanity check: display CTAPHID header
-        let header = ctapResponse.prefix(7)
-        print("📄 CTAPHID header: \(header.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        // Extract and log INIT payload
-        let payload = ctapResponse[7..<7 + CTAPHIDInitResponse.expectedLength]
-        print("📨 Decoded INIT payload (17 bytes): \(payload.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        let initResponse = try CTAPHIDInitResponse(data: Data(payload))
-
-        // ✅ Compare echoed nonce
-        if initResponse.nonce != nonce {
-            print("🚨 Nonce mismatch!")
-            print("🔐 Expected nonce: \(nonce.map { String(format: "%02x", $0) }.joined())")
-            print("📥 Received nonce: \(initResponse.nonce.map { String(format: "%02x", $0) }.joined())")
-            throw FidoError.internalError
-        } else {
-            print("✅ Nonce match confirmed.")
-        }
-
-        print("🆔 Assigned Channel ID (from payload): \(String(format: "%08x", initResponse.cid))")
-
-        // Optionally extract channel ID directly from raw response for comparison
-        let cidBytes = ctapResponse[15..<19]
-        let newCID = Data(ctapResponse[15..<19]).withUnsafeBytes {
-            $0.load(as: UInt32.self).bigEndian
-        }
-        print("🆔 Assigned Channel ID (manual extract): \(String(format: "%08x", newCID))")
-
-        return newCID
+        return response.channelId
     }
-
 
     private func scheduleIOLoop(device: IOHIDDevice, ms: Int) {
-        let loopID = CFRunLoopMode.defaultMode.rawValue
-        // Schedule the device with the current run loop
-        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), loopID)
-
-        var timeout: Double = (ms == -1) ? 5.0 : Double(ms) / 1000.0
-
-        // Run the current run loop for the specified timeout
-        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
-
-        // Unschedule the device from the current run loop
-        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
+        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, Double(ms)/1000.0, true)
+        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
     }
 
-    private func buildCtapHidInitFrame(channelId: UInt32, nonce: Data) -> Data {
-        let reportSize = 64
-
-        var frame = Data()
-        frame.append(contentsOf: withUnsafeBytes(of: channelId.bigEndian, Array.init))
-        frame.append(0x86) // 0x80 | 0x06 (CTAPHID_INIT)
-        frame.append(UInt8((nonce.count >> 8) & 0xFF))
-        frame.append(UInt8(nonce.count & 0xFF))
-        frame.append(nonce)
-
-        // Pad to report size
-        if frame.count < reportSize {
-            frame.append(contentsOf: repeatElement(0, count: reportSize - frame.count))
+    private func rawReadFromPipe(
+        fd: Int32,
+        bufferSize: Int,
+        timeoutMs: Int
+    ) throws -> Data {
+        var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        let result = poll(&pfd, 1, Int32(timeoutMs))
+        guard result > 0 else {
+            throw result == 0 ? CTAPHIDError.timedOut : CTAPHIDError.ioError(errno: errno)
         }
 
-        return frame
+        var buf = [UInt8](repeating: 0, count: bufferSize)
+        let n = read(fd, &buf, bufferSize)
+        guard n > 0 else {
+            throw CTAPHIDError.ioError(errno: errno)
+        }
+
+        return Data(buf.prefix(n))
     }
 
-    private func sendToHidDevice(
-        device: IOHIDDevice,
-        reportID: CFIndex = 0,
-        data: Data,
-        reportType: IOHIDReportType
-    ) throws {
-        // ✅ Don't prepend reportID to the data
-        let result = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> IOReturn in
-            let reportPtr = buffer.bindMemory(to: UInt8.self).baseAddress!
-            return IOHIDDeviceSetReport(device, reportType, reportID, reportPtr, buffer.count)
-        }
 
-        guard result == kIOReturnSuccess else {
-            print("❌ Failed to send report. IOReturn: \(result)")
-            throw FidoError.txError
-        }
-
-        print("📨 INIT packet \(data.count) bytes sent")
+    private func readInitResponse(
+        fd: Int32,
+        bufferSize: Int,
+        timeoutMs: Int
+    ) throws -> CTAPHIDInitPayload {
+        let raw = try rawReadFromPipe(fd: fd, bufferSize: bufferSize, timeoutMs: timeoutMs)
+        return try CTAPHIDInitPayload(rawReport: raw)
     }
 
-    func readFromPipe(fd: Int32, bufferSize: Int, timeoutMs: Int) throws -> Data {
-        print("🔍 Waiting to read from pipe fd=\(fd), timeout=\(timeoutMs)ms")
+    struct FirmwareVersion {
+        let major: UInt8
+        let minor: UInt8
+        let build: UInt8
+    }
 
-        var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-        let pollResult = poll(&pollFD, 1, Int32(timeoutMs))
 
-        if pollResult == 0 {
-            print("⏱️ Poll timed out after \(timeoutMs)ms — no data available")
-            throw FidoError.readTimedOut
-        } else if pollResult < 0 {
-            print("❌ Poll error: \(String(cString: strerror(errno)))")
-            throw FidoError.failedToReadPendingFrame
+    struct CTAPHIDInitPayload {
+        let nonce: Data
+        let channelId: UInt32
+        let protocolVersion: UInt8
+        let firmware: FirmwareVersion
+        let flags: CapabilityFlags
+        
+        init(payload: Data) throws {
+            guard payload.count >= 17 else { throw FidoError.internalError }
+            nonce            = payload[0..<8]
+            channelId        = payload[8..<12].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            protocolVersion  = payload[12]
+            firmware = FirmwareVersion(
+                major: payload[13],
+                minor: payload[14],
+                build: payload[15]
+            )
+            flags = CapabilityFlags(rawValue: payload[16])
         }
-
-        print("📡 Poll returned: \(pollResult), revents: \(pollFD.revents)")
-
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        print("📖 Attempting to read from pipe fd=\(fd)")
-        let bytesRead = read(fd, &buffer, bufferSize)
-        print("📦 Bytes read: \(bytesRead)")
-
-        if bytesRead <= 0 {
-            print("❌ Read failed or returned no bytes. errno: \(errno), message: \(String(cString: strerror(errno)))")
-            throw FidoError.failedToReadData
+        
+        init(rawReport: Data) throws {
+            // 1. strip 1‑byte reportID
+            let packet = rawReport.dropFirst()
+            // 2. parse header & length
+            guard packet.count >= 7 else { throw FidoError.tooShort }
+            let cmdByte = packet[4]
+            guard cmdByte & 0x80 != 0, (cmdByte & 0x7F) == CTAPHIDCommand.`init`.rawValue
+            else { throw FidoError.invalidCommand }
+            let length = Int(packet[5])<<8 | Int(packet[6])
+            guard packet.count >= 7 + length, length >= 17
+            else { throw FidoError.lengthMismatch }
+            // 3. take the 17‑byte payload
+            let payload = packet[7..<7+17]
+            // now hand off to your existing init(data:)
+            try self.init(payload: Data(payload))
         }
-
-        let hexDump = buffer.prefix(bytesRead).map { String(format: "%02x", $0) }.joined(separator: " ")
-        print("📥 Read \(bytesRead) bytes from pipe: \(hexDump)")
-
-        return Data(buffer.prefix(bytesRead))
     }
 }
 
-struct CTAPHIDInitResponse {
-    let nonce: Data      // 8 bytes
-    let cid: UInt32      // 4 bytes
-    let ctaphidProtocol: UInt8  // 1 byte
-    let major: UInt8     // 1 byte
-    let minor: UInt8     // 1 byte
-    let build: UInt8     // 1 byte
-    let flags: UInt8     // 1 byte
 
-    static let expectedLength = 17
+enum CTAPHIDError: Error {
+    case timedOut
+    case ioError(errno: Int32)
+    case invalidPacket
+    case unexpectedCommand(CTAPHIDCommand)
+    case txError(IOReturn)
+}
 
-    init(data: Data) throws {
-        guard data.count >= Self.expectedLength else {
-            throw FidoError.internalError
+extension Data {
+    var hex: String { map { String(format: "%02x", $0) }.joined(separator: " ") }
+}
+
+
+struct CapabilityFlags: OptionSet {
+    let rawValue: UInt8
+    static let wink = CapabilityFlags(rawValue: 0x01)
+    static let cbor = CapabilityFlags(rawValue: 0x04)
+    static let nmsg = CapabilityFlags(rawValue: 0x08)
+    // …future bits reserved
+}
+
+struct HIDReport {
+    let reportID: CFIndex
+    let reportType: IOHIDReportType
+    let data: Data
+}
+
+extension HIDReport {
+    init(
+        _ initFrame: CTAPHIDInitFrame,
+        reportID: CFIndex = 0,
+        reportType: IOHIDReportType = kIOHIDReportTypeOutput
+    )
+    {
+        self.reportID   = reportID
+        self.reportType = reportType
+        self.data       = initFrame.raw
+    }
+}
+
+struct CTAPHIDInitFrame {
+    static let broadcastCID: UInt32 = 0xFFFFFFFF
+    static let reportSize = 64
+    static let nonceSize = 8
+
+    let channelId: UInt32    // 0xFFFF_FFFF for allocate
+    let nonce: Data          // 8 bytes
+
+    /// The raw bytes you put into the HID report (after the reportID)
+    var raw: Data {
+        var d = Data()
+        d.append(contentsOf: withUnsafeBytes(of: channelId.bigEndian, Array.init))
+        d.append(0x80 | CTAPHIDCommand.`init`.rawValue)     // INIT with high‑bit
+        d.append(UInt8((nonce.count >> Self.nonceSize) & 0xff))
+        d.append(UInt8(nonce.count & 0xff))
+        d.append(nonce)
+        // pad to exactly 64 bytes
+        d.append(contentsOf: repeatElement(0, count: Self.reportSize - d.count))
+        return d
+    }
+}
+
+extension IOHIDDevice {
+    /// Send a HID report, throwing a nice error on failure.
+    func sendReport(_ report: HIDReport) throws {
+        let result = report.data.withUnsafeBytes { buf -> IOReturn in
+            IOHIDDeviceSetReport(
+                self,
+                report.reportType,
+                report.reportID,
+                buf.bindMemory(to: UInt8.self).baseAddress!,
+                buf.count
+            )
         }
-
-        self.nonce = data.prefix(8)
-
-        let cidRange = 8..<12
-        self.cid = data[cidRange].withUnsafeBytes {
-            $0.load(as: UInt32.self).bigEndian
+        guard result == kIOReturnSuccess else {
+            throw CTAPHIDError.txError(result)
         }
-
-        self.ctaphidProtocol = data[12]
-        self.major    = data[13]
-        self.minor    = data[14]
-        self.build    = data[15]
-        self.flags    = data[16]
     }
 }

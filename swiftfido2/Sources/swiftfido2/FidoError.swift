@@ -5,8 +5,9 @@
 //  Created by Gage Halverson on 10/23/24.
 //
 
-enum FidoError: Error {
+public enum FidoError: Error {
     case invalidArgument
+    case canceledByUser
     case internalError
     case txError
     case rxError
@@ -49,5 +50,11 @@ enum FidoError: Error {
     case invalidUserHandle
 
     case missingCredentialID
-    
+
+    case invalidCommand
+    case lengthMismatch
+    case tooShort
+
+    case nonceMismatch
+
 }
