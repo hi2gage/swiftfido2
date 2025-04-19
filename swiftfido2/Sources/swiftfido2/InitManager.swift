@@ -3,7 +3,7 @@ import Foundation
 
 class InitManager {
     func performCTAPHIDInit(
-        device: IOHIDDevice,
+        device: FidoDeviceInfo,
         context: FidoDeviceContext,
         reportID: CFIndex = 0,
         timeoutMs: Int = 5000
@@ -37,6 +37,10 @@ class InitManager {
         IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         CFRunLoopRunInMode(CFRunLoopMode.defaultMode, Double(ms)/1000.0, true)
         IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+    }
+
+    private func scheduleIOLoop(device: FidoDeviceInfo, ms: Int) {
+        scheduleIOLoop(device: device.hidDevice, ms: ms)
     }
 
     private func rawReadFromPipe(
@@ -82,7 +86,7 @@ class InitManager {
         let protocolVersion: UInt8
         let firmware: FirmwareVersion
         let flags: CapabilityFlags
-        
+
         init(payload: Data) throws {
             guard payload.count >= 17 else { throw FidoError.internalError }
             nonce            = payload[0..<8]
@@ -95,7 +99,7 @@ class InitManager {
             )
             flags = CapabilityFlags(rawValue: payload[16])
         }
-        
+
         init(rawReport: Data) throws {
             // 1. strip 1‑byte reportID
             let packet = rawReport.dropFirst()
@@ -137,46 +141,6 @@ struct CapabilityFlags: OptionSet {
     // …future bits reserved
 }
 
-struct HIDReport {
-    let reportID: CFIndex
-    let reportType: IOHIDReportType
-    let data: Data
-}
-
-extension HIDReport {
-    init(
-        _ initFrame: CTAPHIDInitFrame,
-        reportID: CFIndex = 0,
-        reportType: IOHIDReportType = kIOHIDReportTypeOutput
-    )
-    {
-        self.reportID   = reportID
-        self.reportType = reportType
-        self.data       = initFrame.raw
-    }
-}
-
-struct CTAPHIDInitFrame {
-    static let broadcastCID: UInt32 = 0xFFFFFFFF
-    static let reportSize = 64
-    static let nonceSize = 8
-
-    let channelId: UInt32    // 0xFFFF_FFFF for allocate
-    let nonce: Data          // 8 bytes
-
-    /// The raw bytes you put into the HID report (after the reportID)
-    var raw: Data {
-        var d = Data()
-        d.append(contentsOf: withUnsafeBytes(of: channelId.bigEndian, Array.init))
-        d.append(0x80 | CTAPHIDCommand.`init`.rawValue)     // INIT with high‑bit
-        d.append(UInt8((nonce.count >> Self.nonceSize) & 0xff))
-        d.append(UInt8(nonce.count & 0xff))
-        d.append(nonce)
-        // pad to exactly 64 bytes
-        d.append(contentsOf: repeatElement(0, count: Self.reportSize - d.count))
-        return d
-    }
-}
 
 extension IOHIDDevice {
     /// Send a HID report, throwing a nice error on failure.
@@ -193,5 +157,44 @@ extension IOHIDDevice {
         guard result == kIOReturnSuccess else {
             throw CTAPHIDError.txError(result)
         }
+    }
+
+    /// Send multiple HID frames in sequence.
+    func sendReportPackets(
+        _ frames: [Data],
+        reportID: CFIndex = 0,
+        reportType: IOHIDReportType = kIOHIDReportTypeOutput
+    ) throws {
+        for (i, frame) in frames.enumerated() {
+            let rpt = HIDReport(reportID: reportID, reportType: reportType, data: frame)
+            try sendReport(rpt)
+            print("📨 Sent packet \(i)")
+        }
+    }
+
+    /// Send multiple HID frames in sequence.
+    func sendReportPackets(_ report: HIDPackageReport) throws {
+        try sendReportPackets(report.packets, reportID: report.reportID, reportType: report.reportType)
+    }
+}
+
+extension FidoDeviceInfo {
+    /// Send a HID report, throwing a nice error on failure.
+    func sendReport(_ report: HIDReport) throws {
+        try self.hidDevice.sendReport(report)
+    }
+
+    /// Send multiple HID frames in sequence.
+    func sendReportPackets(
+        _ frames: [Data],
+        reportID: CFIndex = 0,
+        reportType: IOHIDReportType = kIOHIDReportTypeOutput
+    ) throws {
+        try self.hidDevice.sendReportPackets(frames, reportID: reportID, reportType: reportType)
+    }
+
+    /// Send multiple HID frames in sequence.
+    func sendReportPackets(_ report: HIDPackageReport) throws {
+        try sendReportPackets(report.packets, reportID: report.reportID, reportType: report.reportType)
     }
 }

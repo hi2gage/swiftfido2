@@ -262,7 +262,7 @@ public class Fido2Manager {
       var cid: Data?
 
       while Date() < deadline {
-        scheduleIOLoop(device: deviceInfo.hidDevice, ms: 10)
+        scheduleIOLoop(device: deviceInfo, ms: 10)
 
         var buf = [UInt8](repeating: 0, count: context.reportInLen)
         let n   = read(context.reportPipe[0], &buf, context.reportInLen)
@@ -361,7 +361,7 @@ public class Fido2Manager {
         // Schedule the device with the current run loop
         IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), loopID)
 
-        var timeout: Double = (ms == -1) ? 5.0 : Double(ms) / 1000.0 // Wait 5 seconds by default if ms is -1
+        let timeout: Double = (ms == -1) ? 5.0 : Double(ms) / 1000.0
 
         // Run the current run loop for the specified timeout
         CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
@@ -369,6 +369,12 @@ public class Fido2Manager {
         // Unschedule the device from the current run loop
         IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
     }
+
+    func scheduleIOLoop(device: FidoDeviceInfo, ms: Int) {
+        scheduleIOLoop(device: device.hidDevice, ms: ms)
+    }
+
+
 
     // Set up input report and removal callbacks
     private func setupHidCallbacks(device: IOHIDDevice, context: inout FidoDeviceContext) {
@@ -482,68 +488,3 @@ struct FidoDeviceContext {
     var hidContext: HIDContext?
     var channelId: UInt32?
 }
-
-
-
-extension Fido2Manager {
-    func sendToHidDevice(
-        device: IOHIDDevice,
-        reportID: CFIndex = 0,
-        data: Data,
-        reportType: IOHIDReportType
-    ) throws {
-        // ✅ Don't prepend reportID to the data
-        let result = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> IOReturn in
-            let reportPtr = buffer.bindMemory(to: UInt8.self).baseAddress!
-            return IOHIDDeviceSetReport(device, reportType, reportID, reportPtr, buffer.count)
-        }
-        
-        guard result == kIOReturnSuccess else {
-            print("❌ Failed to send report. IOReturn: \(result)")
-            throw FidoError.txError
-        }
-        
-        print("📨 INIT packet \(data.count) bytes sent")
-    }
-
-    func sendCtapHidCborCommand(
-        device: IOHIDDevice,
-        context: FidoDeviceContext,
-        channelId: UInt32,
-        payload: Data,
-        reportId: CFIndex = 0
-    ) throws {
-        let command: UInt8 = 0x10 // CTAPHID_CBOR
-        let packets = buildCtapHidCborFrame(channelId: channelId, command: command, payload: payload)
-
-        for (i, packet) in packets.enumerated() {
-            try sendToHidDevice(
-                device: device,
-                reportID: reportId,
-                data: packet,
-                reportType: kIOHIDReportTypeOutput
-            )
-            print("📨 Sent CBOR packet \(i)")
-        }
-        scheduleIOLoop(device: device, ms: 5000)
-    }
-
-
-    func initializeCommunication(with device: FidoDeviceInfo) throws {
-        let nonce = try Data.random(length: 8) // Generate nonce
-        let command: UInt8 = 0x06 // Example command ID for init (replace with actual)
-        let reportID: CFIndex = 0 // Define report ID based on your protocol
-        let reportType: IOHIDReportType = kIOHIDReportTypeOutput
-
-        var commandData = Data([command])
-        commandData.append(nonce) // Append command data with nonce
-
-        try sendToHidDevice(
-            device: device.hidDevice,
-            reportID: reportID,
-            data: commandData,
-            reportType: reportType
-        )
-    }
-}
-
