@@ -173,33 +173,33 @@ class InitManager {
     }
 }
 
-//struct CTAPHIDInitResponse {
-//    let nonce: Data      // 8 bytes
-//    let cid: UInt32      // 4 bytes
-//    let ctaphidProtocol: UInt8  // 1 byte
-//    let major: UInt8     // 1 byte
-//    let minor: UInt8     // 1 byte
-//    let build: UInt8     // 1 byte
-//    let flags: UInt8     // 1 byte
-//
-//    static let expectedLength = 17
-//
-//    init(data: Data) throws {
-//        guard data.count >= Self.expectedLength else {
-//            throw FidoError.internalError
-//        }
-//
-//        self.nonce = data.prefix(8)
-//
-//        let cidRange = 8..<12
-//        self.cid = data[cidRange].withUnsafeBytes {
-//            $0.load(as: UInt32.self).bigEndian
-//        }
-//
-//        self.ctaphidProtocol = data[12]
-//        self.major    = data[13]
-//        self.minor    = data[14]
-//        self.build    = data[15]
-//        self.flags    = data[16]
-//    }
-//}
+struct CTAPHIDInitResponse {
+    let nonce: Data      // 8 bytes
+    let cid: UInt32      // 4 bytes
+    let ctaphidProtocol: UInt8  // 1 byte
+    let major: UInt8     // 1 byte
+    let minor: UInt8     // 1 byte
+    let build: UInt8     // 1 byte
+    let flags: UInt8     // 1 byte
+
+    static let expectedLength = 17
+
+    init(data: Data) throws {
+        guard data.count >= Self.expectedLength else {
+            throw FidoError.internalError
+        }
+
+        self.nonce = data.prefix(8)
+
+        let cidRange = 8..<12
+        self.cid = data[cidRange].withUnsafeBytes {
+            $0.load(as: UInt32.self).bigEndian
+        }
+
+        self.ctaphidProtocol = data[12]
+        self.major    = data[13]
+        self.minor    = data[14]
+        self.build    = data[15]
+        self.flags    = data[16]
+    }
+}

@@ -204,7 +204,7 @@ extension ChallengeArgs {
 final class FIDO {
     public func respondToChallenge(args: ChallengeArgs) throws -> ChallengeResponse {
         let manager = Fido2Manager()
-//        let initManager = Init
+        let initManager = InitManager()
 
         // Discover the first available FIDO HID device
         guard let device = try manager.fidoHidDevices(max: 12).first else {
@@ -218,7 +218,7 @@ final class FIDO {
         var context = try manager.open(withHidDevice: device)
         print("✅ Device opened")
 
-        let cid = try manager.performCTAPHIDInit(device: device.hidDevice, context: context)
+        let cid = try initManager.performCTAPHIDInit(device: device.hidDevice, context: context)
         print("channel Id: \(String(format: "%08x", cid))")
         context.channelId = cid
 
