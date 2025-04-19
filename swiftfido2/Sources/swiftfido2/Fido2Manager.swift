@@ -71,7 +71,7 @@ extension Fido2Manager {
     }
 }
 
-class Fido2Manager {
+public class Fido2Manager {
 
 
     func buildCtapHidCborFrame(channelId: UInt32, command: UInt8, payload: Data) -> [Data] {
@@ -213,111 +213,108 @@ class Fido2Manager {
     }
 
 
-
     func readData(
-        from deviceInfo: FidoDeviceInfo,
-        context: FidoDeviceContext,
-        timeout: Int = 5000
+      from deviceInfo: FidoDeviceInfo,
+      context: FidoDeviceContext,
+      timeout: Int = 10_000
     ) throws -> Data {
-        let device = deviceInfo.hidDevice
-        var buffer = [UInt8](repeating: 0, count: context.reportInLen)
-        var bytesRead = 0
-        let startTime = Date()
-        let timeoutSeconds = Double(timeout) / 1000.0
+      let deadline = Date().addingTimeInterval(Double(timeout)/1000)
+      var assembled     = Data()
+      var expectedLength: Int?
+      var cid: Data?
 
-        repeat {
-            bytesRead = read(context.reportPipe[0], &buffer, context.reportInLen)
+      while Date() < deadline {
+        scheduleIOLoop(device: deviceInfo.hidDevice, ms: 10)
 
-            if bytesRead == -1 {
-                if errno == EAGAIN || errno == EWOULDBLOCK {
-                    usleep(50_000)
-                    if Date().timeIntervalSince(startTime) > timeoutSeconds {
-                        throw FidoError.readTimedOut
-                    }
-                    continue
-                } else {
-                    print("Read error: \(String(cString: strerror(errno)))")
-                    throw FidoError.failedToReadPendingFrame
-                }
-            }
+        var buf = [UInt8](repeating: 0, count: context.reportInLen)
+        let n   = read(context.reportPipe[0], &buf, context.reportInLen)
 
-            if bytesRead > 0 {
-                let nonZeroBytes = buffer.prefix(bytesRead).contains { $0 != 0 }
-                if nonZeroBytes {
-                    print("📥 Received data: \(buffer.prefix(bytesRead).map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-                    // ✅ Check for CBOR response
-                    let data = Data(buffer.prefix(bytesRead))
-                    let payload = data.dropFirst().dropFirst(7) // drop report ID and CTAPHID header
-
-                    if buffer[4] & 0x7F == 0x10 { // command byte masked
-                        do {
-                            let payloadBytes = [UInt8](payload)
-                            print("📦 Raw CBOR bytes: \(payloadBytes.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-                            let decoded = try CBOR.decode(payloadBytes)
-                            print("📦 Top-level decoded CBOR: \(decoded)")
-
-                            if case let .map(cborMap) = decoded {
-                                print("📦 Decoded CBOR Map:")
-                                for (key, value) in cborMap {
-                                    print("🔑 \(key) → \(value)")
-                                }
-                            } else {
-                                print("⚠️ Not a map — likely a raw response code: \(decoded)")
-                            }
-                        } catch {
-                            print("⚠️ CBOR decode error: \(error)")
-                        }
-                    }
-                }
-                break
-            }
-
-        } while true
-
-        if bytesRead < 0 || bytesRead != context.reportInLen {
-            print("Bytes read is not as expected. Read: \(bytesRead), Expected: \(context.reportInLen)")
-            throw FidoError.failedToReadData
+        guard n > 0 else {
+          if errno == EAGAIN || errno == EWOULDBLOCK {
+            usleep(50_000)
+            continue
+          }
+          throw FidoError.failedToReadPendingFrame
         }
 
-        return Data(buffer.prefix(bytesRead))
-    }
+        let raw = Data(buf.prefix(n))
+        print("📥 Received data: \(raw.map { String(format: "%02x", $0) }.joined(separator: " "))")
 
+        // must be at least 7 bytes for header+length
+        guard raw.count >= 7 else {
+          print("⚠️ Packet too short, skipping")
+          continue
+        }
+
+        // parse the CTAPHID packet in-place (no dropFirst!)
+        let packetCID = raw[0..<4]
+        let cmdByte   = raw[4]
+        let isInit    = (cmdByte & 0x80) != 0
+        let cmd       = cmdByte & 0x7F
+
+        // remember which channel we’re on
+        if cid == nil {
+          cid = packetCID
+        } else if cid! != packetCID {
+          print("⚠️ CID mismatch, skipping packet")
+          continue
+        }
+
+        // continuation = any packet where high‑bit is cleared
+        if !isInit {
+          guard let total = expectedLength else {
+            print("⚠️ Continuation before INIT – skipping")
+            continue
+          }
+          let fullPayload = raw.dropFirst(5)             // [CID(4), SEQ(1)] gone
+          let remaining   = total - assembled.count      // how many bytes we really need
+          let chunk       = fullPayload.prefix(remaining)
+          assembled.append(contentsOf: chunk)
+          print("➕ CONT frame appended: \(assembled.count)/\(total)")
+
+          if assembled.count == total {
+            print("✅ Full CBOR payload received (\(total) bytes)")
+            return assembled
+          }
+          continue
+        }
+
+        // INIT packet – switch on actual command
+        switch cmd {
+        case 0x10:  // CTAPHID_CBOR initial packet
+          let len = Int(raw[5])<<8 | Int(raw[6])
+          expectedLength = len
+          let firstPayload = raw.dropFirst(7).prefix(len)
+          assembled = Data(firstPayload)
+          print("📦 CBOR INIT frame: expected total \(len) bytes")
+
+          if assembled.count == len {
+            print("✅ Full CBOR payload received (\(len) bytes)")
+            return assembled
+          }
+
+        case 0x3B:  // KEEPALIVE
+          let status = raw[7]
+          print("⏳ KEEPALIVE: \(status == 1 ? "Processing" : "Touch Required")")
+          continue
+
+        default:
+          print("⚠️ Unexpected CTAPHID_INIT cmd: 0x\(String(cmd, radix: 16))")
+          continue
+        }
+      }
+
+      throw FidoError.readTimedOut
+    }
 
     func waitForAssertionResponse(
         device: FidoDeviceInfo,
         context: FidoDeviceContext,
-        timeout: Int = 10000
+        timeout: Int = 10_000
     ) throws -> Data {
-        let deadline = Date().addingTimeInterval(Double(timeout) / 1000.0)
-
-        while Date() < deadline {
-            scheduleIOLoop(device: device.hidDevice, ms: 5000)
-
-            let response = try readData(from: device, context: context)
-
-            // Strip report ID and header
-            let ctaphid = response.dropFirst()
-            guard ctaphid.count >= 7 else { continue }
-
-            let cmd = ctaphid[4] & 0x7F
-            let len = Int(ctaphid[5]) << 8 | Int(ctaphid[6])
-            let payload = ctaphid.dropFirst(7).prefix(len)
-
-            switch cmd {
-            case 0x3B:
-                let status = payload.first ?? 0
-                print("⏳ KEEPALIVE: \(status == 1 ? "PROCESSING" : "TOUCH REQUIRED")")
-            case 0x10:
-                print("✅ Got CTAPHID_CBOR response!")
-                return Data(payload)
-            default:
-                print("⚠️ Unexpected response cmd: \(cmd)")
-            }
-        }
-
-        throw FidoError.readTimedOut
+        // readData already blocks until it has the *entire* CBOR payload
+        let cborPayload = try readData(from: device, context: context, timeout: timeout)
+        return cborPayload
     }
 
 

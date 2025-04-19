@@ -41,4 +41,13 @@ enum FidoError: Error {
     case invalidCBOR
     case missingField(String)
     case unexpectedFieldType(String)
+
+
+    case missingCredential
+    case missingSignature
+    case missingUserHandle
+    case invalidUserHandle
+
+    case missingCredentialID
+    
 }
