@@ -1,8 +1,6 @@
-//// The Swift Programming Language
-//// https://docs.swift.org/swift-book
-//import Foundation
-//import CryptoKit
-//
+// The Swift Programming Language
+// https://docs.swift.org/swift-book
+
 public struct ChallengeResponse: Encodable {
     public let challenge: String
     public let clientData: String

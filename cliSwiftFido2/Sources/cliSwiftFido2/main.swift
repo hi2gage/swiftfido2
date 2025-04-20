@@ -16,7 +16,7 @@ do {
         origin: "https://webauthn.io"
     )
 
-    let response = try fido.respondToChallenge(args: args)
+    let response = try await fido.respondToChallenge(args: args)
 
     print(response)
 

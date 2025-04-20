@@ -38,31 +38,31 @@ extension Fido2Manager {
     /// - Returns: the first FidoDeviceInfo found
     /// - Throws: any error from `fidoHidDevices(max:)`, except `noDevicesFound` is simply retried
     func waitForDevice(
-      maxDevices: Int = 12,
-      pollInterval: TimeInterval = 1.0,
-      prompt: String = "🔍 No FIDO/U2F key detected. Please plug one in…"
+        maxDevices: Int = 12,
+        pollInterval: TimeInterval = 1.0,
+        prompt: String = "🔍 No FIDO/U2F key detected. Please plug one in…"
     ) throws -> [FidoDeviceInfo] {
-      var didPrintPrompt = false
+        var didPrintPrompt = false
 
-      while true {
-        do {
-          let list = try fidoHidDevices(max: maxDevices)
-            if list.count > 0 {
-                return list
+        while true {
+            do {
+                let list = try fidoHidDevices(max: maxDevices)
+                if list.count > 0 {
+                    return list
+                }
+                // if we get an empty array rather than throwing
             }
-          // if we get an empty array rather than throwing
-        }
-        catch FidoError.noDevicesFound {
-          // swallow and retry
-        }
+            catch FidoError.noDevicesFound {
+                // swallow and retry
+            }
 
-        if !didPrintPrompt {
-          print(prompt)
-          didPrintPrompt = true
-        }
+            if !didPrintPrompt {
+                print(prompt)
+                didPrintPrompt = true
+            }
 
-        Thread.sleep(forTimeInterval: pollInterval)
-      }
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
     }
 }
 
@@ -163,8 +163,6 @@ public class Fido2Manager {
             throw FidoError.failedToOpenDevice
         }
 
-        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
-
         // Create non-blocking pipe
         var pipeFD: [Int32] = [-1, -1]
         guard Darwin.pipe(&pipeFD) == 0 else {
@@ -199,8 +197,6 @@ public class Fido2Manager {
             fcntl(fd, F_SETFL, flags | O_NONBLOCK)
         }
     }
-
-    
 
     func close(
         withHidDevice deviceInfo: FidoDeviceInfo,
@@ -250,100 +246,207 @@ public class Fido2Manager {
         context = FidoDeviceContext()  // Or handle it differently if needed
     }
 
+    /// An async version of your old `fido_hid_read()`.
+    func readData(
+        from device: IOHIDDevice,
+        context: FidoDeviceContext,
+        timeoutMs: Int = 5_000
+    ) async throws -> Data {
+        let scheduleIO: (Int) -> Void = { ms in
+            let mode = CFRunLoopMode.defaultMode.rawValue
+            IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), mode)
+            CFRunLoopRunInMode(CFRunLoopMode.defaultMode, Double(ms)/1000.0, true)
+            IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), mode)
+        }
+        let transport = HIDTransport(
+            device: device,
+            pipeFds: (context.reportPipe[0], context.reportPipe[1]),
+            reportLen: context.reportInLen
+        )
+
+        return try await transport.readAsync(
+            timeoutMs: timeoutMs
+        )
+    }
 
     func readData(
-      from deviceInfo: FidoDeviceInfo,
-      context: FidoDeviceContext,
-      timeout: Int = 10_000
+        from deviceInfo: FidoDeviceInfo,
+        context: FidoDeviceContext,
+        timeout: Int = 10_000
     ) throws -> Data {
-      let deadline = Date().addingTimeInterval(Double(timeout)/1000)
-      var assembled     = Data()
-      var expectedLength: Int?
-      var cid: Data?
+        let deadline = Date().addingTimeInterval(Double(timeout)/1000)
+        var assembled     = Data()
+        var expectedLength: Int?
+        var cid: Data?
 
-      while Date() < deadline {
-        scheduleIOLoop(device: deviceInfo, ms: 10)
+        while Date() < deadline {
+            HIDTransport.scheduleIOLoop(device: deviceInfo.hidDevice, ms: 10)
 
-        var buf = [UInt8](repeating: 0, count: context.reportInLen)
-        let n   = read(context.reportPipe[0], &buf, context.reportInLen)
+            var buf = [UInt8](repeating: 0, count: context.reportInLen)
+            let n   = read(context.reportPipe[0], &buf, context.reportInLen)
 
-        guard n > 0 else {
-          if errno == EAGAIN || errno == EWOULDBLOCK {
-            usleep(50_000)
-            continue
-          }
-          throw FidoError.failedToReadPendingFrame
+            guard n > 0 else {
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    usleep(50_000)
+                    continue
+                }
+                throw FidoError.failedToReadPendingFrame
+            }
+
+            let raw = Data(buf.prefix(n))
+            print("📥 Received data: \(raw.map { String(format: "%02x", $0) }.joined(separator: " "))")
+
+            // must be at least 7 bytes for header+length
+            guard raw.count >= 7 else {
+                print("⚠️ Packet too short, skipping")
+                continue
+            }
+
+            // parse the CTAPHID packet in-place (no dropFirst!)
+            let packetCID = raw[0..<4]
+            let cmdByte   = raw[4]
+            let isInit    = (cmdByte & 0x80) != 0
+            let cmd       = cmdByte & 0x7F
+
+            // remember which channel we’re on
+            if cid == nil {
+                cid = packetCID
+            } else if cid! != packetCID {
+                print("⚠️ CID mismatch, skipping packet")
+                continue
+            }
+
+            // continuation = any packet where high‑bit is cleared
+            if !isInit {
+                guard let total = expectedLength else {
+                    print("⚠️ Continuation before INIT – skipping")
+                    continue
+                }
+                let fullPayload = raw.dropFirst(5)             // [CID(4), SEQ(1)] gone
+                let remaining   = total - assembled.count      // how many bytes we really need
+                let chunk       = fullPayload.prefix(remaining)
+                assembled.append(contentsOf: chunk)
+                print("➕ CONT frame appended: \(assembled.count)/\(total)")
+
+                if assembled.count == total {
+                    print("✅ Full CBOR payload received (\(total) bytes)")
+                    return assembled
+                }
+                continue
+            }
+
+            // INIT packet – switch on actual command
+            switch cmd {
+            case 0x10:  // CTAPHID_CBOR initial packet
+                let len = Int(raw[5])<<8 | Int(raw[6])
+                expectedLength = len
+                let firstPayload = raw.dropFirst(7).prefix(len)
+                assembled = Data(firstPayload)
+                print("📦 CBOR INIT frame: expected total \(len) bytes")
+
+                if assembled.count == len {
+                    print("✅ Full CBOR payload received (\(len) bytes)")
+                    return assembled
+                }
+
+            case 0x3B:  // KEEPALIVE
+                let status = raw[7]
+                print("⏳ KEEPALIVE: \(status == 1 ? "Processing" : "Touch Required")")
+                continue
+
+            default:
+                print("⚠️ Unexpected CTAPHID_INIT cmd: 0x\(String(cmd, radix: 16))")
+                continue
+            }
         }
 
-        let raw = Data(buf.prefix(n))
-        print("📥 Received data: \(raw.map { String(format: "%02x", $0) }.joined(separator: " "))")
-
-        // must be at least 7 bytes for header+length
-        guard raw.count >= 7 else {
-          print("⚠️ Packet too short, skipping")
-          continue
-        }
-
-        // parse the CTAPHID packet in-place (no dropFirst!)
-        let packetCID = raw[0..<4]
-        let cmdByte   = raw[4]
-        let isInit    = (cmdByte & 0x80) != 0
-        let cmd       = cmdByte & 0x7F
-
-        // remember which channel we’re on
-        if cid == nil {
-          cid = packetCID
-        } else if cid! != packetCID {
-          print("⚠️ CID mismatch, skipping packet")
-          continue
-        }
-
-        // continuation = any packet where high‑bit is cleared
-        if !isInit {
-          guard let total = expectedLength else {
-            print("⚠️ Continuation before INIT – skipping")
-            continue
-          }
-          let fullPayload = raw.dropFirst(5)             // [CID(4), SEQ(1)] gone
-          let remaining   = total - assembled.count      // how many bytes we really need
-          let chunk       = fullPayload.prefix(remaining)
-          assembled.append(contentsOf: chunk)
-          print("➕ CONT frame appended: \(assembled.count)/\(total)")
-
-          if assembled.count == total {
-            print("✅ Full CBOR payload received (\(total) bytes)")
-            return assembled
-          }
-          continue
-        }
-
-        // INIT packet – switch on actual command
-        switch cmd {
-        case 0x10:  // CTAPHID_CBOR initial packet
-          let len = Int(raw[5])<<8 | Int(raw[6])
-          expectedLength = len
-          let firstPayload = raw.dropFirst(7).prefix(len)
-          assembled = Data(firstPayload)
-          print("📦 CBOR INIT frame: expected total \(len) bytes")
-
-          if assembled.count == len {
-            print("✅ Full CBOR payload received (\(len) bytes)")
-            return assembled
-          }
-
-        case 0x3B:  // KEEPALIVE
-          let status = raw[7]
-          print("⏳ KEEPALIVE: \(status == 1 ? "Processing" : "Touch Required")")
-          continue
-
-        default:
-          print("⚠️ Unexpected CTAPHID_INIT cmd: 0x\(String(cmd, radix: 16))")
-          continue
-        }
-      }
-
-      throw FidoError.readTimedOut
+        throw FidoError.readTimedOut
     }
+
+    // Read and reassemble a full CBOR payload (INIT + CONT frames) asynchronously.
+    func readData(
+        from deviceInfo: FidoDeviceInfo,
+        context: FidoDeviceContext,
+        timeout: Int = 10_000
+    ) async throws -> Data {
+        let deadline = Date().addingTimeInterval(Double(timeout)/1000)
+        var assembled = Data()
+        var expectedLength: Int?
+        var cid: Data?
+
+        let transport = HIDTransport(
+            device: deviceInfo.hidDevice,
+            pipeFds: (context.reportPipe[0], context.reportPipe[1]),
+            reportLen: context.reportInLen
+        )
+
+
+        while Date() < deadline {
+            // Instead of manually scheduling the run‑loop and calling `read`,
+            // we just `await` our async wrapper.
+            
+            let raw = try await transport.readAsync(
+                timeoutMs: 10000
+            )
+            print("📥 Received data: \(raw.hex)")
+
+            guard raw.count >= 7 else {
+                print("⚠️ Packet too short, skipping")
+                continue
+            }
+
+            // parse the CTAPHID packet in‑place (no dropFirst!)
+            let packetCID = raw[0..<4]
+            let cmdByte   = raw[4]
+            let isInit    = (cmdByte & 0x80) != 0
+            let cmd       = cmdByte & 0x7F
+
+            // remember which channel we’re on
+            if cid == nil {
+                cid = packetCID
+            } else if cid! != packetCID {
+                print("⚠️ CID mismatch, skipping packet")
+                continue
+            }
+
+            if !isInit {
+                // CONT frames
+                guard let total = expectedLength else {
+                    print("⚠️ Continuation before INIT – skipping")
+                    continue
+                }
+                let chunk = raw.dropFirst(5).prefix(total - assembled.count)
+                assembled.append(contentsOf: chunk)
+                print("➕ CONT frame appended: \(assembled.count)/\(total)")
+
+                if assembled.count == total {
+                    print("✅ Full CBOR payload received (\(total) bytes)")
+                    return assembled
+                }
+            } else {
+                // INIT frames: only CBOR commands matter here
+                switch cmd {
+                case 0x10: // CTAPHID_CBOR
+                    let len = Int(raw[5])<<8 | Int(raw[6])
+                    expectedLength = len
+                    assembled = Data(raw.dropFirst(7).prefix(len))
+                    print("📦 CBOR INIT frame: expected total \(len) bytes")
+                    if assembled.count == len {
+                        print("✅ Full CBOR payload received (\(len) bytes)")
+                        return assembled
+                    }
+                case 0x3B: // KEEPALIVE
+                    let status = raw[7]
+                    print("⏳ KEEPALIVE: \(status == 1 ? "Processing" : "Touch Required")")
+                default:
+                    print("⚠️ Unexpected CTAPHID_INIT cmd: 0x\(String(cmd, radix: 16))")
+                }
+            }
+        }
+
+        throw FidoError.readTimedOut
+    }
+
 
     func waitForAssertionResponse(
         device: FidoDeviceInfo,
@@ -352,30 +455,23 @@ public class Fido2Manager {
     ) throws -> GetAssertionResponse {
         // readData already blocks until it has the *entire* CBOR payload
         let cborPayload = try readData(from: device, context: context, timeout: timeout)
-//        debugPrintCBORResponse(cborPayload)
+        //        debugPrintCBORResponse(cborPayload)
         return try GetAssertionResponse(from: Ctap2Response(raw: cborPayload))
     }
 
-
-    func scheduleIOLoop(device: IOHIDDevice, ms: Int) {
-        let loopID = CFRunLoopMode.defaultMode.rawValue
-        // Schedule the device with the current run loop
-        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), loopID)
-
-        let timeout: Double = (ms == -1) ? 5.0 : Double(ms) / 1000.0
-
-        // Run the current run loop for the specified timeout
-        CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
-
-        // Unschedule the device from the current run loop
-        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
+    func waitForAssertionResponse(
+        device: FidoDeviceInfo,
+        context: FidoDeviceContext,
+        timeout: Int = 10_000
+    ) async throws -> GetAssertionResponse {
+        // readData already blocks until it has the *entire* CBOR payload
+        let cborPayload = try await readData(
+            from: device,
+            context: context,
+            timeout: timeout
+        )
+        return try GetAssertionResponse(from: Ctap2Response(raw: cborPayload))
     }
-
-    func scheduleIOLoop(device: FidoDeviceInfo, ms: Int) {
-        scheduleIOLoop(device: device.hidDevice, ms: ms)
-    }
-
-
 
     // Set up input report and removal callbacks
     private func setupHidCallbacks(device: IOHIDDevice, context: inout FidoDeviceContext) {
@@ -389,7 +485,7 @@ public class Fido2Manager {
                 device,
                 hidContext.buffer,
                 hidContext.bufferLength,
-                inputReportCallback, // This doesn't work
+                inputReportCallback,
                 UnsafeMutableRawPointer(Unmanaged.passUnretained(hidContext).toOpaque())
             )
         }
@@ -439,19 +535,10 @@ func inputReportCallback(
     report: UnsafeMutablePointer<UInt8>,
     reportLength: CFIndex
 ) {
-    print("inputReportCallback triggered")
     guard let context = context, reportLength > 0 else { return }
 
-    print("📥 Callback report: \(Data(bytes: report, count: reportLength).map { String(format: "%02x", $0) }.joined())")
-
     let ctx = Unmanaged<HIDContext>.fromOpaque(context).takeUnretainedValue()
-    let written = write(ctx.pipe[1], report, reportLength)
-
-    if written == -1 {
-        print("❌ Write to pipe failed: \(String(cString: strerror(errno)))")
-    } else {
-        print("✅ Wrote \(written) bytes to pipe")
-    }
+    write(ctx.pipe[1], report, reportLength)
 }
 
 final class HIDContext {
@@ -471,6 +558,23 @@ final class HIDContext {
         close(pipe[1])
     }
 }
+
+//struct FidoDeviceContext {
+//  /// your raw IOHIDDevice
+//  let device: IOHIDDevice
+//
+//  /// the helper that owns the CFRunLoop buffer + pipe FDs
+//  let hidContext: HIDContext
+//
+//  /// the transport you’ll use to read/write HID packets
+//  let transport: HIDTransport
+//
+//  /// the max output length (for writing CTAP frames)
+//  let reportOutLen: Int
+//
+//  /// once you’ve done your INIT, you’ll set this
+//  var channelId: UInt32?
+//}
 
 @discardableResult
 func setNonBlocking(fd: Int32) -> Bool {
