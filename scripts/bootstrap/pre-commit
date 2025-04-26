@@ -1,0 +1,28 @@
+#!/bin/zsh
+
+echo "hello"
+
+# Path to formatter (relative to repo root)
+FORMAT_SCRIPT="format-all-swift.zsh"
+
+# Move to repo root (in case hook is run from subdir)
+cd "$(git rev-parse --show-toplevel)"
+
+
+
+# Run formatter
+if [[ ! -x "$FORMAT_SCRIPT" ]]; then
+  echo "❌ Formatter script $FORMAT_SCRIPT not found or not executable"
+  exit 1
+fi
+
+echo "💡 Running formatter via $FORMAT_SCRIPT"
+"$FORMAT_SCRIPT"
+FORMAT_EXIT=$?
+
+# Optionally re-stage modified files
+echo "🔁 Restaging updated files (if any)..."
+git add -u
+
+# Exit with formatter's exit code
+exit $FORMAT_EXIT
