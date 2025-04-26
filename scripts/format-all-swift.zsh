@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-echo "🔧 Running swift-format on all Swift files in the package..."
+echo "🔧 Running swift-format on staged Swift files..."
 
 # Ensure we're in a Swift package directory
 if [[ ! -f "Package.swift" ]]; then
@@ -8,15 +8,36 @@ if [[ ! -f "Package.swift" ]]; then
   exit 1
 fi
 
-# Find all .swift files excluding .build and .git directories
-FILES=($(find . -name "*.swift" \
-  -not -path "./.build/*" \
-  -not -path "./.git/*"))
+# Get list of staged .swift files (Added, Copied, or Modified)
+STAGED_FILES=($(git diff --cached --name-only --diff-filter=ACM | grep '\.swift$'))
 
-# Format each file
-for FILE in $FILES; do
-  swift format format --configuration scripts/.swift-format.json -i "$FILE"
-  echo "✅ Formatted: $FILE"
+if [[ ${#STAGED_FILES[@]} -eq 0 ]]; then
+  echo "ℹ️  No staged Swift files to format."
+  exit 0
+fi
+
+# Track which files were actually modified by formatting
+MODIFIED=()
+
+for FILE in "${STAGED_FILES[@]}"; do
+  if [[ -f "$FILE" ]]; then
+    SHA_BEFORE=$(git hash-object "$FILE")
+
+    # Format the file in-place
+    swift format format --configuration scripts/.swift-format.json -i "$FILE"
+
+    SHA_AFTER=$(git hash-object "$FILE")
+
+    if [[ "$SHA_BEFORE" != "$SHA_AFTER" ]]; then
+      MODIFIED+=("$FILE")
+      echo "✅ Formatted: $FILE"
+      git add "$FILE"
+    fi
+  fi
 done
 
-echo "🎉 Done formatting!"
+if [[ ${#MODIFIED[@]} -eq 0 ]]; then
+  echo "🎉 No changes needed!"
+else
+  echo "🔁 Updated and restaged ${#MODIFIED[@]} file(s)."
+fi
