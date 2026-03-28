@@ -22,7 +22,7 @@ let package = Package(
 
 		.testTarget(
 			name: "swiftfido2Tests",
-			dependencies: ["swiftfido2"]
+			dependencies: ["swiftfido2", "SwiftCBOR"]
 		),
 	]
 )
