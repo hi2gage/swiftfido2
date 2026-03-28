@@ -1,44 +1,58 @@
+import CryptoKit
 import Foundation
 import swiftfido2
 import swiftfido2Core
 
-// Usage
 do {
-	let fido = FIDO()
+	let core = FidoCore()
 
-	let args = ChallengeArgs(
+	// 1. Discover
+	let devices = try FidoDeviceDiscovery.discoverDevices()
+	guard let device = devices.first else {
+		fatalError("No FIDO devices found — plug in your YubiKey")
+	}
+	print("🔑 Found: \(device.vendorId):\(device.productId)")
+
+	// 2. Open & CTAPHID Init
+	let uninitContext = try FidoDeviceDiscovery.open(device)
+	let context = try await core.initializeDevice(uninitContext)
+	print("✅ Channel: \(String(format: "0x%08X", context.channelId))")
+
+	// 3. GetInfo — see what the device supports
+	let info = try await core.getInfo(context)
+	print("📋 Versions: \(info.versions)")
+	print("📋 Extensions: \(info.extensions ?? [])")
+	print("📋 Options: \(info.options)")
+	print("📋 Max message size: \(info.maxMsgSize ?? 0)")
+
+	// 4. GetAssertion — a test assertion against webauthn.io
+	//    This will fail with a CTAP2 error if no credential is registered,
+	//    but it proves the full round-trip works.
+	let clientDataJSON = """
+		{"type":"webauthn.get","challenge":"dGVzdC1jaGFsbGVuZ2U","origin":"https://webauthn.io","crossOrigin":false}
+		"""
+	let clientDataHash = Data(SHA256.hash(data: Data(clientDataJSON.utf8)))
+
+	let request = AssertionRequest(
 		rpId: "webauthn.io",
-		validCredentials: [
-			"HzkKL3lwFsZO/yxT2ttc+vLDquHKwSlcoW/uXA4B2TwoFZzrPlO1WY49oXPtTqqh",
-			"aVmqqquRaXjXoc2O9ha6SZrm3Fo=",
-		],
-		devPin: "2593",  // Not needed for this flow
-		challenge:
-			"oJaYU7YrvrHfE5nwjHFKs6UeJtmgZPPNrcCMghhtYs47zorVV3QIYkxjcB2FwTvLotXuZKxHBr3bHjAjA8icsQ",
-		origin: "https://webauthn.io"
+		clientDataHash: clientDataHash
 	)
 
-	try await test()
+	print("\n🖐️ Sending GetAssertion for webauthn.io — touch your key if it blinks...")
+	let assertion = try await core.getAssertion(context, request: request)
+	print("✅ Got assertion!")
+	print("   Credential ID: \(assertion.credentialId.base64EncodedString())")
+	print("   Auth Data: \(assertion.authData.count) bytes")
+	print("   Signature: \(assertion.signature.count) bytes")
+	if let handle = assertion.userHandle {
+		print(
+			"   User Handle: \(String(data: handle, encoding: .utf8) ?? handle.base64EncodedString())"
+		)
+	}
 
-	//    let response = try await fido.respondToChallenge(args: args)
-
-	//    print(response)
+	context.close()
+	print("🧹 Done")
 
 } catch {
 	print("❌ Error: \(error)")
-}
-
-func test() async throws {
-	let devices = try FidoDeviceDiscovery.discoverDevices()
-	guard let device = devices.first else {
-		fatalError("No FIDO devices found")
-	}
-	let context = try FidoDeviceDiscovery.open(device)
-
-	let core = FidoCore()
-
-	let signedContext = try await core.initializeDevice(context)
-
-	print("context: \(context)")
-	print("signedContext: \(signedContext)")
 }

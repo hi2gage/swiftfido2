@@ -1,45 +1,63 @@
 //
-//  File.swift
+//  HIDTransport.swift
 //  swiftfido2
 //
 //  Created by Gage Halverson on 4/19/25.
 //
 
 @preconcurrency import Foundation
+import IOKit
 
-final class HIDTransport: Sendable {
+final class HIDTransport: @unchecked Sendable {
 	let device: IOHIDDevice
 	let reportLen: Int
 
-	//    let buffer: UnsafeMutablePointer<UInt8>
-	let bufferLength: Int
+	private let queue: DispatchQueue
+	private let buffer: UnsafeMutablePointer<UInt8>
+	private let stream: AsyncStream<Data>
+	private let continuation: AsyncStream<Data>.Continuation
 
-	let pipeFds: (read: Int32, write: Int32)
-
-	init(
-		device: IOHIDDevice,
-		reportLen: Int,
-		bufferLength: Int,
-		pipeFds: (read: Int32, write: Int32)
-	) {
+	init(device: IOHIDDevice, reportLen: Int) {
 		self.device = device
 		self.reportLen = reportLen
-		//        self.buffer = .allocate(capacity: bufferLength)
-		self.bufferLength = bufferLength
-		self.pipeFds = pipeFds
+		self.queue = DispatchQueue(label: "fido.hid.transport")
+		self.buffer = .allocate(capacity: reportLen)
+
+		var cont: AsyncStream<Data>.Continuation!
+		self.stream = AsyncStream { cont = $0 }
+		self.continuation = cont
+
+		// Register input report callback — will fire on our dispatch queue
+		let opaquePtr = Unmanaged.passUnretained(self).toOpaque()
+		IOHIDDeviceRegisterInputReportCallback(
+			device,
+			buffer,
+			reportLen,
+			{ context, result, sender, type, reportID, report, reportLength in
+				guard let context, reportLength > 0 else { return }
+				let transport = Unmanaged<HIDTransport>.fromOpaque(context)
+					.takeUnretainedValue()
+				let data = Data(bytes: report, count: reportLength)
+				transport.continuation.yield(data)
+			},
+			opaquePtr
+		)
+
+		// Schedule on dispatch queue (not run loop)
+		IOHIDDeviceSetDispatchQueue(device, queue)
+		IOHIDDeviceActivate(device)
 	}
 
-	//    deinit {
-	//        buffer.deallocate()
-	//        close(pipeFds.read)
-	//        close(pipeFds.write)
-	//    }
+	deinit {
+		buffer.deallocate()
+	}
 
 	enum HIDError: Error {
 		case timeout
-		case ioError(errno: Int32)
-		case invalidLength(expected: Int, actual: Int)
+		case disconnected
 	}
+
+	// MARK: - Send
 
 	func sendReport(_ report: HIDReport) throws {
 		let result = report.data.withUnsafeBytes { buf -> IOReturn in
@@ -57,22 +75,10 @@ final class HIDTransport: Sendable {
 	}
 
 	func sendReportPackets(_ report: HIDPackageReport) throws {
-		try sendReportPackets(
-			report.packets,
-			reportID: report.reportID,
-			reportType: report.reportType
-		)
-	}
-
-	private func sendReportPackets(
-		_ frames: [Data],
-		reportID: CFIndex = 0,
-		reportType: IOHIDReportType = kIOHIDReportTypeOutput
-	) throws {
-		for (i, frame) in frames.enumerated() {
+		for (i, frame) in report.packets.enumerated() {
 			let rpt = HIDReport(
-				reportID: reportID,
-				reportType: reportType,
+				reportID: report.reportID,
+				reportType: report.reportType,
 				data: frame
 			)
 			try sendReport(rpt)
@@ -80,56 +86,30 @@ final class HIDTransport: Sendable {
 		}
 	}
 
+	// MARK: - Read
+
 	func readAsync(timeoutMs: Int) async throws -> Data {
-		return try await withCheckedThrowingContinuation { cont in
-			// offload to a background thread so we don't block the actor
-			Task.detached {
-				do {
-					let data = try self.readBlocking(timeoutMs: timeoutMs)
-					cont.resume(returning: data)
-				} catch {
-					cont.resume(throwing: error)
+		try await withThrowingTaskGroup(of: Data.self) { group in
+			group.addTask {
+				for await data in self.stream {
+					return data
 				}
+				throw HIDError.disconnected
 			}
+			group.addTask {
+				try await Task.sleep(nanoseconds: UInt64(timeoutMs) * 1_000_000)
+				throw HIDError.timeout
+			}
+			let result = try await group.next()!
+			group.cancelAll()
+			return result
 		}
 	}
 
-	private func readBlocking(timeoutMs: Int) throws -> Data {
-		// 1) pump your run‑loop so the IO callback can fire
-		Self.scheduleIOLoop(device: device, ms: 100)
+	// MARK: - Cleanup
 
-		// 2) wait via poll()
-		var pfd = pollfd(fd: pipeFds.read, events: Int16(POLLIN), revents: 0)
-		let r = poll(&pfd, 1, Int32(timeoutMs))
-		if r < 0 {
-			throw HIDError.ioError(errno: errno)
-		}
-		if r == 0 {
-			throw HIDError.timeout
-		}
-
-		// 3) now actually read whatever’s pending
-		var buf = [UInt8](repeating: 0, count: reportLen)
-		let n = read(pipeFds.read, &buf, reportLen)
-		if n < 0 {
-			throw HIDError.ioError(errno: errno)
-		}
-
-		// 4) return exactly what you got
-		return Data(buf.prefix(n))
-	}
-
-	static func scheduleIOLoop(device: IOHIDDevice, ms: Int) {
-		let loopID = CFRunLoopMode.defaultMode.rawValue
-		// Schedule the device with the current run loop
-		IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), loopID)
-
-		let timeout: Double = (ms == -1) ? 5.0 : Double(ms) / 1000.0
-
-		// Run the current run loop for the specified timeout
-		CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
-
-		// Unschedule the device from the current run loop
-		IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), loopID)
+	func close() {
+		IOHIDDeviceCancel(device)
+		continuation.finish()
 	}
 }

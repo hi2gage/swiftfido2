@@ -8,11 +8,9 @@
 public struct UninitializedFidoContext {
 	let device: UninitializedFidoDevice
 	let transport: HIDTransport
-	let buffer: Buffer
 
-	init(device: UninitializedFidoDevice, transport: HIDTransport, buffer: Buffer) {
+	init(device: UninitializedFidoDevice, transport: HIDTransport) {
 		self.device = device
 		self.transport = transport
-		self.buffer = buffer
 	}
 }
