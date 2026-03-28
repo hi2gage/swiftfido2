@@ -8,15 +8,15 @@
 import Foundation
 import IOKit.hid
 
-public struct FidoDeviceHandle: Hashable, @unchecked Sendable {
-	public let deviceRef: IOHIDDevice
-	public let vendorId: UInt16
-	public let productId: UInt16
-	public let inputReportSize: Int
-	public let outputReportSize: Int
-	public var channelId: UInt32
+package struct FidoDeviceHandle: Hashable, @unchecked Sendable {
+	package let deviceRef: IOHIDDevice
+	package let vendorId: UInt16
+	package let productId: UInt16
+	package let inputReportSize: Int
+	package let outputReportSize: Int
+	package var channelId: UInt32
 
-	public init(from device: UninitializedFidoDevice, channelId: UInt32) {
+	package init(from device: UninitializedFidoDevice, channelId: UInt32) {
 		self.deviceRef = device.deviceRef
 		self.vendorId = device.vendorId
 		self.productId = device.productId
@@ -25,7 +25,7 @@ public struct FidoDeviceHandle: Hashable, @unchecked Sendable {
 		self.channelId = channelId
 	}
 
-	public var description: String {
+	package var description: String {
 		KnownVendors(rawValue: vendorId)?.products
 			.first(where: { $0.productId == productId })?
 			.name ?? "Unknown FIDO Device"

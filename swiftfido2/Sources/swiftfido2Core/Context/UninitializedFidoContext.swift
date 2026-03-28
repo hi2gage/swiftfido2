@@ -5,7 +5,7 @@
 //  Created by Gage Halverson on 4/25/25.
 //
 
-public struct UninitializedFidoContext {
+package struct UninitializedFidoContext {
 	let device: UninitializedFidoDevice
 	let transport: HIDTransport
 

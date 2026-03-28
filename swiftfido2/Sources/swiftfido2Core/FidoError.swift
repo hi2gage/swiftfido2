@@ -5,11 +5,11 @@
 //  Created by Gage Halverson on 4/25/25.
 //
 
-public enum FidoError: Error {
+package enum FidoError: Error {
 	case device(DeviceError)
 	case protocolError(ProtocolError)
 
-	public enum DeviceError: Error {
+	package enum DeviceError: Error {
 		case notFidoCompliant
 		case invalidPath
 		case missingVendorOrProductId
@@ -21,7 +21,7 @@ public enum FidoError: Error {
 		case failedToCreatePipe
 	}
 
-	public enum ProtocolError: Error {
+	package enum ProtocolError: Error {
 		case tooShort
 		case invalidCommand
 		case lengthMismatch

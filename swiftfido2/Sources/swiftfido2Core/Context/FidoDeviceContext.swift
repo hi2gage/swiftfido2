@@ -5,11 +5,11 @@
 //  Created by Gage Halverson on 4/25/25.
 //
 
-public struct FidoDeviceContext {
+package struct FidoDeviceContext {
 	let device: FidoDeviceHandle
 	let transport: HIDTransport
 
-	public var channelId: UInt32 { device.channelId }
+	package var channelId: UInt32 { device.channelId }
 
 	init(device: FidoDeviceHandle, transport: HIDTransport) {
 		self.device = device
@@ -21,7 +21,7 @@ public struct FidoDeviceContext {
 		transport = context.transport
 	}
 
-	public func close() {
+	package func close() {
 		transport.close()
 	}
 }

@@ -5,18 +5,18 @@
 //  Created by Gage Halverson on 4/25/25.
 //
 
-public enum CTAPHIDSpec {
+package enum CTAPHIDSpec {
 	/// Broadcast channel used to initiate communication before channel assignment
-	public static let broadcastChannelId: UInt32 = 0xffff_ffff
+	package static let broadcastChannelId: UInt32 = 0xffff_ffff
 
 	/// Required nonce length for CTAPHID_INIT
-	public static let nonceLength: Int = 8
+	package static let nonceLength: Int = 8
 
 	/// Maximum report length (typically 64 bytes for HID)
-	public static let maxReportLength: Int = 64
+	package static let maxReportLength: Int = 64
 
 	/// Command values (you may already have this elsewhere)
-	public enum Command: UInt8 {
+	package enum Command: UInt8 {
 		case ping = 0x01
 		case msg = 0x03
 		case lock = 0x04
