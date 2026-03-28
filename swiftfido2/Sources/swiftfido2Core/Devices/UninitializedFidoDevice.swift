@@ -13,6 +13,7 @@ public struct UninitializedFidoDevice: @unchecked Sendable {
 	public let deviceRef: IOHIDDevice
 	public let vendorId: UInt16
 	public let productId: UInt16
+	public let productName: String
 	public let inputReportSize: Int
 	public let outputReportSize: Int
 }
@@ -43,8 +44,11 @@ extension UninitializedFidoDevice {
 		guard
 			IOHIDDeviceGetProperty(hidDevice, kIOHIDManufacturerKey as CFString)
 				as? String != nil,
-			IOHIDDeviceGetProperty(hidDevice, kIOHIDProductKey as CFString) as? String
-				!= nil
+			let productName = IOHIDDeviceGetProperty(
+				hidDevice,
+				kIOHIDProductKey as CFString
+			)
+				as? String
 		else {
 			throw FidoError.device(.missingMetadata)
 		}
@@ -61,6 +65,7 @@ extension UninitializedFidoDevice {
 		self.deviceRef = hidDevice
 		self.vendorId = vendorId
 		self.productId = productId
+		self.productName = productName
 		self.inputReportSize = inputReportSize
 		self.outputReportSize = outputReportSize
 	}
