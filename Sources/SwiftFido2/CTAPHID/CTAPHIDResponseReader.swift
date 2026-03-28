@@ -78,6 +78,16 @@ enum CTAPHIDResponseReader {
 				throw CTAPHIDError.invalidResponseLength
 			}
 
+			// Verify channel ID matches on continuation packets
+			let contChannel = contPacket.withUnsafeBytes { buf in
+				buf.load(as: UInt32.self).bigEndian
+			}
+			guard contChannel == channelId else {
+				throw CTAPHIDError.malformedFrame(
+					"Continuation channel mismatch: expected \(channelId), got \(contChannel)"
+				)
+			}
+
 			// Byte 4 is sequence number (no high bit set)
 			let seq = contPacket[4]
 			guard seq == expectedSeq else {
