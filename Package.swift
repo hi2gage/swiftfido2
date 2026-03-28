@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-	name: "swiftfido2",
-	platforms: [.macOS(.v13)],
+	name: "SwiftFido2",
+	platforms: [.macOS(.v10_15)],
 	products: [
 		.library(
-			name: "swiftfido2",
-			targets: ["swiftfido2"]
+			name: "SwiftFido2",
+			targets: ["SwiftFido2"]
 		)
 	],
 	dependencies: [
@@ -15,14 +15,14 @@ let package = Package(
 	],
 	targets: [
 		.target(
-			name: "swiftfido2",
+			name: "SwiftFido2",
 			dependencies: ["SwiftCBOR"],
-			path: "swiftfido2/Sources/swiftfido2"
+			path: "Sources/SwiftFido2"
 		),
 
 		.testTarget(
-			name: "swiftfido2Tests",
-			dependencies: ["swiftfido2", "SwiftCBOR"]
+			name: "SwiftFido2Tests",
+			dependencies: ["SwiftFido2", "SwiftCBOR"]
 		),
 	]
 )

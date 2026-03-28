@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import swiftfido2
+@testable import SwiftFido2
 
 @Suite("Ctap2 Response Parsing")
 struct AssertionResponseTests {

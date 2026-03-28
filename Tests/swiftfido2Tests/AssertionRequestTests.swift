@@ -2,7 +2,7 @@ import Foundation
 import SwiftCBOR
 import Testing
 
-@testable import swiftfido2
+@testable import SwiftFido2
 
 @Suite("AssertionRequest CBOR Encoding")
 struct AssertionRequestTests {

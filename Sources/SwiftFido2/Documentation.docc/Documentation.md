@@ -1,10 +1,10 @@
-# ``swiftfido2``
+# ``SwiftFido2``
 
 A pure Swift FIDO2/CTAP2 library for macOS.
 
 ## Overview
 
-swiftfido2 provides native Swift access to FIDO2 hardware security keys (like YubiKey) over USB HID on macOS. It handles device discovery, CTAPHID channel initialization, and CTAP2 commands without any C dependencies.
+SwiftFido2 provides native Swift access to FIDO2 hardware security keys over USB HID on macOS. It communicates directly with authenticators like YubiKey using the CTAP2 protocol. No C dependencies, no wrappers.
 
 ## Topics
 

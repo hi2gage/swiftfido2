@@ -33,13 +33,13 @@ public final class FidoClient: Sendable {
 
 	/// Discovers the first available FIDO device, performs an assertion, and closes the device.
 	public func getAssertion(_ request: AssertionRequest) async throws -> AssertionResponse {
-		let device = try await waitForDevice()
+		let device = try await waitForDevice(timeoutSeconds: 30)
 		return try await getAssertion(device, request: request)
 	}
 
 	/// Discovers the first available FIDO device, queries its info, and closes the device.
 	public func getInfo() async throws -> DeviceInfo {
-		let device = try await waitForDevice()
+		let device = try await waitForDevice(timeoutSeconds: 30)
 		return try await getInfo(device)
 	}
 
@@ -52,14 +52,20 @@ public final class FidoClient: Sendable {
 	}
 
 	/// Waits for a FIDO device to be plugged in, polling up to `timeout`.
+	@available(macOS 13, *)
 	public func waitForDevice(timeout: Duration = .seconds(30)) async throws -> FidoDevice {
-		let deadline = ContinuousClock.now + timeout
-		while ContinuousClock.now < deadline {
+		try await waitForDevice(timeoutSeconds: timeout.timeInterval)
+	}
+
+	/// Waits for a FIDO device to be plugged in, polling up to `timeoutSeconds`.
+	public func waitForDevice(timeoutSeconds: TimeInterval = 30) async throws -> FidoDevice {
+		let deadline = Date().addingTimeInterval(timeoutSeconds)
+		while Date() < deadline {
 			let devices = try discoverDevices()
 			if let first = devices.first {
 				return first
 			}
-			try await Task.sleep(for: .seconds(1))
+			try await Task.sleep(nanoseconds: 1_000_000_000)
 		}
 		throw FidoError.deviceNotFound
 	}
@@ -88,5 +94,13 @@ public final class FidoClient: Sendable {
 	private func openAndInit(_ device: FidoDevice) async throws -> FidoDeviceContext {
 		let uninitContext = try FidoDeviceDiscovery.open(device.raw)
 		return try await FidoCore.initializeDevice(uninitContext)
+	}
+}
+
+@available(macOS 13, *)
+extension Duration {
+	var timeInterval: TimeInterval {
+		let (seconds, attoseconds) = self.components
+		return TimeInterval(seconds) + TimeInterval(attoseconds) * 1e-18
 	}
 }

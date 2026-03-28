@@ -1,4 +1,4 @@
-# swiftfido2
+# SwiftFido2
 
 A pure Swift FIDO2/CTAP2 library for macOS. Communicates directly with hardware security keys like YubiKey over USB HID using the CTAP2 protocol. No C dependencies, no wrappers.
 
@@ -14,7 +14,7 @@ A pure Swift FIDO2/CTAP2 library for macOS. Communicates directly with hardware 
 ## Quick Start
 
 ```swift
-import swiftfido2
+import SwiftFido2
 
 let client = FidoClient()
 let assertion = try await client.getAssertion(
@@ -39,7 +39,7 @@ For more control over device selection and lifecycle:
 let client = FidoClient()
 
 // Wait for a key to be plugged in
-let device = try await client.waitForDevice(timeout: .seconds(30))
+let device = try await client.waitForDevice(timeoutSeconds: 30)
 print("Found: \(device.name)")  // "YubiKey OTP+FIDO+CCID"
 
 // Query device capabilities
@@ -68,7 +68,7 @@ The library includes a catalog of 50+ known FIDO authenticators from vendors inc
 ## Architecture
 
 ```
-swiftfido2/
+SwiftFido2/
 ├── FidoClient           # Public API entry point
 ├── FidoDevice           # Device handle (name, vendor/product ID)
 ├── AssertionRequest     # GetAssertion input (rpId, clientDataHash, credentials)
@@ -82,7 +82,7 @@ swiftfido2/
 
 ## Requirements
 
-- macOS 13+
+- macOS 10.15+
 - Swift 6.0+
 - A FIDO2-compliant USB security key
 

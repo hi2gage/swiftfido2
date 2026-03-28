@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 @testable import SwiftCBOR
-@testable import swiftfido2
+@testable import SwiftFido2
 
 @Suite("GetInfoResult CBOR Parsing")
 struct GetInfoResultTests {
