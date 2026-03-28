@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
 	name: "swiftfido2",
-	platforms: [.macOS(.v15)],
+	platforms: [.macOS(.v13)],
 	products: [
 		// your library
 		.library(

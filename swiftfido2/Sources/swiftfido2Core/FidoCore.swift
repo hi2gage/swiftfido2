@@ -81,8 +81,6 @@ public final class FidoCore: Sendable {
 		let report = HIDPackageReport(frame)
 		try context.transport.sendReportPackets(report)
 
-		print("🖐️ Touch your security key...")
-
 		// Longer timeout — user needs to physically touch the key
 		let response = try await CTAPHIDResponseReader.readResponse(
 			from: context.transport,

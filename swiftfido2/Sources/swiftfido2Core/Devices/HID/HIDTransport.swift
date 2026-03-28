@@ -75,14 +75,13 @@ final class HIDTransport: @unchecked Sendable {
 	}
 
 	func sendReportPackets(_ report: HIDPackageReport) throws {
-		for (i, frame) in report.packets.enumerated() {
+		for frame in report.packets {
 			let rpt = HIDReport(
 				reportID: report.reportID,
 				reportType: report.reportType,
 				data: frame
 			)
 			try sendReport(rpt)
-			print("📨 Sent packet \(i)")
 		}
 	}
 
