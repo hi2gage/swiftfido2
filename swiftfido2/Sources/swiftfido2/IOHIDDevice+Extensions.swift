@@ -8,20 +8,23 @@
 import IOKit.hid
 
 extension IOHIDDevice {
-    var isFido: Bool {
-        let primaryUsagePage = IOHIDDeviceGetProperty(self, kIOHIDPrimaryUsagePageKey as CFString) as? UInt16
-        guard let primaryUsagePage else { return false }
+	var isFido: Bool {
+		let primaryUsagePage =
+			IOHIDDeviceGetProperty(self, kIOHIDPrimaryUsagePageKey as CFString)
+			as? UInt16
+		guard let primaryUsagePage else { return false }
 
-        let transportValue = IOHIDDeviceGetProperty(self, kIOHIDTransportKey as CFString) as? String
-        guard let transport = transportValue else {
-            return false
-        }
+		let transportValue =
+			IOHIDDeviceGetProperty(self, kIOHIDTransportKey as CFString) as? String
+		guard let transport = transportValue else {
+			return false
+		}
 
-        // Ensure the transport is USB
-        if transport.lowercased() != "usb" {
-            return false
-        }
+		// Ensure the transport is USB
+		if transport.lowercased() != "usb" {
+			return false
+		}
 
-        return primaryUsagePage == 0xF1D0
-    }
+		return primaryUsagePage == 0xF1D0
+	}
 }

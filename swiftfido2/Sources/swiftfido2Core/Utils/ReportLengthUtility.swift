@@ -31,7 +31,7 @@ struct ReportLengthUtility {
 		let reportLength = try getInt32(device: device, key: direction.key)
 		if reportLength < 0 {
 			print("\(direction.label): Failed to retrieve report length")
-			throw FidoError.failedToGetReportLength
+			throw ReportLengthError.failedToGetReportLength
 		}
 
 		// Check for valid report length
@@ -39,7 +39,7 @@ struct ReportLengthUtility {
 			print(
 				"\(direction.label): report length \(reportLength) exceeds maximum allowed"
 			)
-			throw FidoError.invalidReportLength
+			throw ReportLengthError.invalidReportLength
 		}
 
 		return Int(reportLength)
@@ -48,10 +48,17 @@ struct ReportLengthUtility {
 	// Utility function to retrieve an integer value from the HID device
 	static func getInt32(device: IOHIDDevice, key: CFString) throws -> Int32 {
 		guard let result = IOHIDDeviceGetProperty(device, key) as? NSNumber else {
-			throw FidoError.propertyRetrievalFailed
+			throw ReportLengthError.propertyRetrievalFailed
 		}
 		return result.int32Value  // Success, return the value
 	}
 
 	static private let CTAP_MAX_REPORT_LEN: Int = 64
+}
+
+enum ReportLengthError: Error {
+	case failedToGetReportLength
+	case invalidReportLength
+	case propertyRetrievalFailed
+
 }

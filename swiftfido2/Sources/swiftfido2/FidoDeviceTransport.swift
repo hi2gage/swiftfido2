@@ -12,11 +12,11 @@ typealias FidoDevRx = (Data) -> Data?
 typealias FidoDevTx = (Data) -> Bool
 // Define the FidoDeviceTransport struct
 struct FidoDeviceTransport {
-    var rx: FidoDevRx?  // Optional, as in C they could be NULL
-    var tx: FidoDevTx?
+	var rx: FidoDevRx?  // Optional, as in C they could be NULL
+	var tx: FidoDevTx?
 
-    init(rx: FidoDevRx? = nil, tx: FidoDevTx? = nil) {
-        self.rx = rx
-        self.tx = tx
-    }
+	init(rx: FidoDevRx? = nil, tx: FidoDevTx? = nil) {
+		self.rx = rx
+		self.tx = tx
+	}
 }

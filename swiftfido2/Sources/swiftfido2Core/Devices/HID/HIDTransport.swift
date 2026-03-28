@@ -7,16 +7,33 @@
 
 @preconcurrency import Foundation
 
-struct HIDTransport: Sendable {
+final class HIDTransport: Sendable {
 	let device: IOHIDDevice
 	let reportLen: Int
+
+	//    let buffer: UnsafeMutablePointer<UInt8>
+	let bufferLength: Int
+
 	let pipeFds: (read: Int32, write: Int32)
 
-	init(device: IOHIDDevice, pipeFds: (Int32, Int32), reportLen: Int) {
+	init(
+		device: IOHIDDevice,
+		reportLen: Int,
+		bufferLength: Int,
+		pipeFds: (read: Int32, write: Int32)
+	) {
 		self.device = device
-		self.pipeFds = pipeFds
 		self.reportLen = reportLen
+		//        self.buffer = .allocate(capacity: bufferLength)
+		self.bufferLength = bufferLength
+		self.pipeFds = pipeFds
 	}
+
+	//    deinit {
+	//        buffer.deallocate()
+	//        close(pipeFds.read)
+	//        close(pipeFds.write)
+	//    }
 
 	enum HIDError: Error {
 		case timeout
@@ -68,7 +85,7 @@ struct HIDTransport: Sendable {
 			// offload to a background thread so we don't block the actor
 			Task.detached {
 				do {
-					let data = try readBlocking(timeoutMs: timeoutMs)
+					let data = try self.readBlocking(timeoutMs: timeoutMs)
 					cont.resume(returning: data)
 				} catch {
 					cont.resume(throwing: error)

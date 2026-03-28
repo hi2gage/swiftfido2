@@ -6,55 +6,54 @@
 //
 
 public enum FidoError: Error {
-    case invalidArgument
-    case canceledByUser
-    case internalError
-    case txError
-    case rxError
-    case noDevicesFound
-    case deviceNotFound
-    case failedToOpenDevice
-    case failedToGetReportLength
+	case invalidArgument
+	case canceledByUser
+	case internalError
+	case txError
+	case rxError
+	case noDevicesFound
+	case deviceNotFound
+	case failedToOpenDevice
+	case failedToGetReportLength
 
-    case failedToFindReport
+	case failedToFindReport
 
-    case FidoDeviceContext
-    case failedToReadData
-    case kIOReturnUnderrun
+	case FidoDeviceContext
+	case failedToReadData
+	case kIOReturnUnderrun
 
-    case invalidReportLength
+	case invalidReportLength
 
-    case propertyRetrievalFailed
-    case operationTimedOut
+	case propertyRetrievalFailed
+	case operationTimedOut
 
-    case failedToReadPendingFrame
+	case failedToReadPendingFrame
 
-    case failedToCreatePipe
-    case errorNoValidCredentials
+	case failedToCreatePipe
+	case errorNoValidCredentials
 
-    case inputErrorInvalidCredentialsArray
-    case libfido2ErrorInternal(Int32)
+	case inputErrorInvalidCredentialsArray
+	case libfido2ErrorInternal(Int32)
 
-    case missingRpId
-    case readTimedOut
+	case missingRpId
+	case readTimedOut
 
-    case missingAuthData
-    case invalidCBOR
-    case missingField(String)
-    case unexpectedFieldType(String)
+	case missingAuthData
+	case invalidCBOR
+	case missingField(String)
+	case unexpectedFieldType(String)
 
+	case missingCredential
+	case missingSignature
+	case missingUserHandle
+	case invalidUserHandle
 
-    case missingCredential
-    case missingSignature
-    case missingUserHandle
-    case invalidUserHandle
+	case missingCredentialID
 
-    case missingCredentialID
+	case invalidCommand
+	case lengthMismatch
+	case tooShort
 
-    case invalidCommand
-    case lengthMismatch
-    case tooShort
-
-    case nonceMismatch
+	case nonceMismatch
 
 }

@@ -1,71 +1,11 @@
 //
-//  File.swift
+//  CTAPHIDCborFrame.swift
 //  swiftfido2
 //
-//  Created by Gage Halverson on 4/19/25.
+//  Created by Gage Halverson on 4/26/25.
 //
 
 import Foundation
-import IOKit
-
-struct HIDReport {
-	let reportID: CFIndex
-	let reportType: IOHIDReportType
-	let data: Data
-}
-
-extension HIDReport {
-	init(
-		_ initFrame: CTAPHIDInitFrame,
-		reportID: CFIndex = 0,
-		reportType: IOHIDReportType = kIOHIDReportTypeOutput
-	) {
-		self.reportID = reportID
-		self.reportType = reportType
-		self.data = initFrame.raw
-	}
-}
-
-/// A generic HID report sequence—one or more 64‑byte USB HID packets.
-struct HIDPackageReport {
-	let reportID: CFIndex
-	let reportType: IOHIDReportType
-	let packets: [Data]
-}
-
-extension HIDPackageReport {
-	init(
-		_ hidFrame: CTAPHIDCborFrame,
-		reportID: CFIndex = 0,
-		reportType: IOHIDReportType = kIOHIDReportTypeOutput
-	) {
-		self.reportID = reportID
-		self.reportType = reportType
-		self.packets = hidFrame.packets
-	}
-}
-
-struct CTAPHIDInitFrame {
-	static let broadcastCID: UInt32 = 0xFFFF_FFFF
-	static let reportSize = 64
-	static let nonceSize = 8
-
-	let channelId: UInt32  // 0xFFFF_FFFF for allocate
-	let nonce: Data  // 8 bytes
-
-	/// The raw bytes you put into the HID report (after the reportID)
-	var raw: Data {
-		var d = Data()
-		d.append(contentsOf: withUnsafeBytes(of: channelId.bigEndian, Array.init))
-		d.append(0x80 | CTAPHIDCommand.`init`.rawValue)  // INIT with high‑bit
-		d.append(UInt8((nonce.count >> Self.nonceSize) & 0xff))
-		d.append(UInt8(nonce.count & 0xff))
-		d.append(nonce)
-		// pad to exactly 64 bytes
-		d.append(contentsOf: repeatElement(0, count: Self.reportSize - d.count))
-		return d
-	}
-}
 
 struct CTAPHIDCborFrame {
 	static let reportSize = 64

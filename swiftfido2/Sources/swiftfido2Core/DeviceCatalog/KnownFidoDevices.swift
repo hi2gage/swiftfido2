@@ -1,19 +1,21 @@
 //
-//  HardwareKeys.swift
+//  KnownFidoDevices.swift
 //  swiftfido2
 //
-//  Created by Gage Halverson on 10/22/24.
+//  Created by Gage Halverson on 4/25/25.
 //
 
-struct HardwareKeys: Hashable {
+import Foundation
+
+struct KnownFidoDevices: Hashable {
 	let vendor: KnownVendors
 	let product: KnownProduct
 
-	static var all: Set<HardwareKeys> {
+	static var all: Set<KnownFidoDevices> {
 		return Set(
 			KnownVendors.allCases.flatMap { vendor in
 				vendor.products.map { product in
-					HardwareKeys(vendor: vendor, product: product)
+					KnownFidoDevices(vendor: vendor, product: product)
 				}
 			}
 		)
