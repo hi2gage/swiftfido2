@@ -24,7 +24,7 @@ extension UninitializedFidoDevice {
 			throw FidoError.device(.notFidoCompliant)
 		}
 
-		guard let path = Self.getPath(for: hidDevice) else {
+		guard Self.getPath(for: hidDevice) != nil else {
 			throw FidoError.device(.invalidPath)
 		}
 
@@ -47,8 +47,7 @@ extension UninitializedFidoDevice {
 			let productName = IOHIDDeviceGetProperty(
 				hidDevice,
 				kIOHIDProductKey as CFString
-			)
-				as? String
+			) as? String
 		else {
 			throw FidoError.device(.missingMetadata)
 		}
@@ -69,18 +68,9 @@ extension UninitializedFidoDevice {
 		self.inputReportSize = inputReportSize
 		self.outputReportSize = outputReportSize
 	}
-
-	private func getUInt16Property(from device: IOHIDDevice, key: CFString) -> UInt16? {
-		guard let number = IOHIDDeviceGetProperty(device, key) as? NSNumber else {
-			return nil
-		}
-		return UInt16(number.uint16Value)
-	}
 }
 
 extension UninitializedFidoDevice {
-
-	// Function to get the device path
 	private static func getPath(for device: IOHIDDevice) -> String? {
 		let service = IOHIDDeviceGetService(device)
 		var id: UInt64 = 0
@@ -88,11 +78,9 @@ extension UninitializedFidoDevice {
 		if service != MACH_PORT_NULL,
 			IORegistryEntryGetRegistryEntryID(service, &id) == KERN_SUCCESS
 		{
-			return "\(Self.IOREG)\(id)"
+			return "ioreg://\(id)"
 		} else {
 			return nil
 		}
 	}
-
-	static let IOREG: String = "ioreg://"
 }

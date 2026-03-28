@@ -8,11 +8,7 @@ let package = Package(
 		.library(
 			name: "swiftfido2",
 			targets: ["swiftfido2"]
-		),
-		.executable(
-			name: "cliSwiftFido2",
-			targets: ["cliSwiftFido2"]
-		),
+		)
 	],
 	dependencies: [
 		.package(path: "../SwiftCBOR")
@@ -30,17 +26,9 @@ let package = Package(
 			path: "swiftfido2/Sources/swiftfido2Core"
 		),
 
-		.executableTarget(
-			name: "cliSwiftFido2",
-			dependencies: [
-				.target(name: "swiftfido2")
-			],
-			path: "cliSwiftFido2/Sources/cliSwiftFido2"
-		),
-
 		.testTarget(
 			name: "swiftfido2Tests",
-			dependencies: ["swiftfido2"]
+			dependencies: ["swiftfido2", "swiftfido2Core"]
 		),
 	]
 )
