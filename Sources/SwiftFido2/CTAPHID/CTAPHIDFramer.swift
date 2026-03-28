@@ -16,7 +16,7 @@ public enum CTAPHIDFramer {
 		var d = Data()
 		d.append(contentsOf: withUnsafeBytes(of: channelId.bigEndian, Array.init))
 		d.append(0x80 | CTAPHIDSpec.Command.`init`.rawValue)  // INIT with high‑bit
-		d.append(UInt8((nonce.count >> CTAPHIDSpec.nonceLength) & 0xff))
+		d.append(UInt8((nonce.count >> 8) & 0xff))
 		d.append(UInt8(nonce.count & 0xff))
 		d.append(nonce)
 		let cappedSize = min(reportSize, CTAPHIDSpec.maxReportLength)

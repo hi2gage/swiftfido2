@@ -13,6 +13,7 @@ public enum FidoDeviceDiscovery {
 
 		IOHIDManagerSetDeviceMatching(manager, nil)
 		IOHIDManagerOpen(manager, 0)
+		defer { IOHIDManagerClose(manager, 0) }
 
 		guard let deviceSet = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
 			return []

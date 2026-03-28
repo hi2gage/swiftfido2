@@ -40,7 +40,7 @@ enum KnownVendors: UInt16, Hashable, CaseIterable {
 	case YUBICO = 0x1050
 	case SILICON = 0x10c4
 	case PIDCODES = 0x1209
-	case GOOGLE = 0x18
+	case GOOGLE = 0x18d1
 	case VASCO = 0x1a44
 	case OPENMOKO = 0x1d50
 	case NEOWAVE = 0x1e0d
