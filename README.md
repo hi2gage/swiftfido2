@@ -54,10 +54,10 @@ let assertion = try await client.getAssertion(device, request: request)
 
 ## How It Works
 
-1. **Discovery** &mdash; Enumerates USB HID devices via IOKit and filters for FIDO-compliant keys (usage page `0xF1D0`)
-2. **Channel Init** &mdash; Sends CTAPHID_INIT on the broadcast channel to allocate a dedicated communication channel
-3. **Command** &mdash; Encodes the CTAP2 command as CBOR, frames it into HID report packets, and sends to the device
-4. **Response** &mdash; Reassembles multi-packet responses, handles KEEPALIVE messages while waiting for user touch, and decodes the CBOR response
+1. **Discovery** Enumerates USB HID devices via IOKit and filters for FIDO-compliant keys (usage page `0xF1D0`)
+2. **Channel Init** Sends CTAPHID_INIT on the broadcast channel to allocate a dedicated communication channel
+3. **Command** Encodes the CTAP2 command as CBOR, frames it into HID report packets, and sends to the device
+4. **Response** Reassembles multi-packet responses, handles KEEPALIVE messages while waiting for user touch, and decodes the CBOR response
 
 ## Supported Devices
 
