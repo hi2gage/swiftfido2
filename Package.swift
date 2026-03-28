@@ -11,7 +11,7 @@ let package = Package(
 		)
 	],
 	dependencies: [
-		.package(path: "../SwiftCBOR")
+		.package(url: "https://github.com/valpackett/SwiftCBOR.git", from: "0.6.0")
 	],
 	targets: [
 		.target(
