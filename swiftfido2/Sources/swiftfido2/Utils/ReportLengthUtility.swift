@@ -21,12 +21,12 @@ struct ReportLengthUtility {
 
 	static func getReportLength(device: IOHIDDevice, direction: Direction) throws -> Int {
 		guard let result = IOHIDDeviceGetProperty(device, direction.key) as? NSNumber else {
-			throw FidoError.device(.reportLengthUnavailable)
+			throw FidoError.reportLengthUnavailable
 		}
 
 		let length = Int(result.int32Value)
 		guard length > 0, length <= maxReportLength else {
-			throw FidoError.device(.reportLengthInvalid)
+			throw FidoError.reportLengthInvalid
 		}
 
 		return length

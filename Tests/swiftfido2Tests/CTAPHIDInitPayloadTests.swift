@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import swiftfido2Core
+@testable import swiftfido2
 
 @Suite("CTAPHIDInitPayload")
 struct CTAPHIDInitPayloadTests {

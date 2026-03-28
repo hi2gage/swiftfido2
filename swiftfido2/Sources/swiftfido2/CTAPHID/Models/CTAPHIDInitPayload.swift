@@ -30,7 +30,7 @@ struct CTAPHIDInitPayload {
 
 	init(payload: Data) throws {
 		guard payload.count >= 17 else {
-			throw FidoError.protocolError(.internalError)
+			throw FidoError.protocolError("Internal error")
 		}
 		nonce = payload[0..<8]
 		channelId = payload[8..<12].withUnsafeBytes {
@@ -51,19 +51,19 @@ struct CTAPHIDInitPayload {
 
 		// 2. Parse header & length
 		guard packet.count >= 7 else {
-			throw FidoError.protocolError(.tooShort)
+			throw FidoError.tooShort
 		}
 
 		let cmdByte = packet[4]
 		guard cmdByte & 0x80 != 0,
 			(cmdByte & 0x7F) == CTAPHIDSpec.Command.`init`.rawValue
 		else {
-			throw FidoError.protocolError(.invalidCommand)
+			throw FidoError.invalidCommand
 		}
 
 		let length = Int(packet[5]) << 8 | Int(packet[6])
 		guard packet.count >= 7 + length, length >= 17 else {
-			throw FidoError.protocolError(.lengthMismatch)
+			throw FidoError.lengthMismatch
 		}
 
 		// 3. Extract and parse the 17‑byte payload

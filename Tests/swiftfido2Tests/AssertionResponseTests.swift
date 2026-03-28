@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import swiftfido2Core
+@testable import swiftfido2
 
 @Suite("Ctap2 Response Parsing")
 struct AssertionResponseTests {
@@ -26,7 +26,7 @@ struct AssertionResponseTests {
 			0x43, 0xDE, 0xAD, 0xBE,  // bytes(3)
 		]
 
-		let response = try swiftfido2Core.AssertionResponse(raw: Data(cborBytes))
+		let response = try AssertionResponse(raw: Data(cborBytes))
 
 		#expect(response.credentialId == Data([0xAA, 0xBB]))
 		#expect(response.authData == Data([0x01, 0x02, 0x03, 0x04, 0x05]))
@@ -39,14 +39,14 @@ struct AssertionResponseTests {
 		// Status byte 0x2E (no credentials) followed by empty CBOR
 		let data = Data([0x2E, 0xA0])
 		#expect(throws: Ctap2ResponseError.self) {
-			try swiftfido2Core.AssertionResponse(raw: data)
+			try AssertionResponse(raw: data)
 		}
 	}
 
 	@Test("rejects empty data")
 	func rejectEmptyData() {
 		#expect(throws: Ctap2ResponseError.self) {
-			try swiftfido2Core.AssertionResponse(raw: Data())
+			try AssertionResponse(raw: Data())
 		}
 	}
 }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import swiftfido2Core
 
 /// Information about a FIDO2 device's capabilities.
 public struct DeviceInfo: Sendable {

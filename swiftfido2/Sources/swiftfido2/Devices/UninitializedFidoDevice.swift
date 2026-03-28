@@ -21,11 +21,11 @@ public struct UninitializedFidoDevice: @unchecked Sendable {
 extension UninitializedFidoDevice {
 	init(from hidDevice: IOHIDDevice) throws {
 		guard hidDevice.isFido else {
-			throw FidoError.device(.notFidoCompliant)
+			throw FidoError.notFidoCompliant
 		}
 
 		guard Self.getPath(for: hidDevice) != nil else {
-			throw FidoError.device(.invalidPath)
+			throw FidoError.invalidPath
 		}
 
 		guard
@@ -38,7 +38,7 @@ extension UninitializedFidoDevice {
 				kIOHIDProductIDKey as CFString
 			) as? UInt16
 		else {
-			throw FidoError.device(.missingVendorOrProductId)
+			throw FidoError.missingVendorOrProductId
 		}
 
 		guard
@@ -49,7 +49,7 @@ extension UninitializedFidoDevice {
 				kIOHIDProductKey as CFString
 			) as? String
 		else {
-			throw FidoError.device(.missingMetadata)
+			throw FidoError.missingMetadata
 		}
 
 		let inputReportSize = try ReportLengthUtility.getReportLength(

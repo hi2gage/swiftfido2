@@ -30,7 +30,7 @@ public enum FidoDeviceDiscovery {
 
 		let openResult = IOHIDDeviceOpen(hid, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
 		guard openResult == kIOReturnSuccess else {
-			throw FidoError.device(.failedToOpen)
+			throw FidoError.deviceOpenFailed
 		}
 
 		let reportLen = max(device.inputReportSize, device.outputReportSize)

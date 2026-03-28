@@ -16,19 +16,13 @@ let package = Package(
 	targets: [
 		.target(
 			name: "swiftfido2",
-			dependencies: ["swiftfido2Core"],
-			path: "swiftfido2/Sources/swiftfido2"
-		),
-
-		.target(
-			name: "swiftfido2Core",
 			dependencies: ["SwiftCBOR"],
-			path: "swiftfido2/Sources/swiftfido2Core"
+			path: "swiftfido2/Sources/swiftfido2"
 		),
 
 		.testTarget(
 			name: "swiftfido2Tests",
-			dependencies: ["swiftfido2", "swiftfido2Core"]
+			dependencies: ["swiftfido2"]
 		),
 	]
 )

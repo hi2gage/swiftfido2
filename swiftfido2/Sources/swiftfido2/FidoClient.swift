@@ -6,26 +6,24 @@
 //
 
 import Foundation
-import swiftfido2Core
 
 /// The main entry point for FIDO2 operations.
 ///
 /// Supports both a simple one-call API and an explicit device-handle API
 /// for more control.
 ///
-/// Simple usage:
+/// ### Simple usage:
 /// ```swift
 /// let client = FidoClient()
 /// let assertion = try await client.getAssertion(request)
 /// ```
 ///
-/// Explicit usage:
+/// ### Explicit usage:
 /// ```swift
 /// let client = FidoClient()
 /// let device = try await client.waitForDevice()
 /// let info = try await client.getInfo(device)
 /// let assertion = try await client.getAssertion(device, request: request)
-/// client.close(device)
 /// ```
 public final class FidoClient: Sendable {
 
@@ -33,23 +31,21 @@ public final class FidoClient: Sendable {
 
 	public init() {}
 
-	// MARK: - Simple API (handles full lifecycle)
+	// MARK: - Simple API
 
 	/// Discovers the first available FIDO device, performs an assertion, and closes the device.
 	public func getAssertion(_ request: AssertionRequest) async throws -> AssertionResponse {
 		let device = try await waitForDevice()
-		defer { close(device) }
 		return try await getAssertion(device, request: request)
 	}
 
 	/// Discovers the first available FIDO device, queries its info, and closes the device.
 	public func getInfo() async throws -> DeviceInfo {
 		let device = try await waitForDevice()
-		defer { close(device) }
 		return try await getInfo(device)
 	}
 
-	// MARK: - Explicit API (caller manages device lifecycle)
+	// MARK: - Explicit API
 
 	/// Discovers FIDO devices currently connected.
 	public func discoverDevices() throws -> [FidoDevice] {
@@ -85,31 +81,7 @@ public final class FidoClient: Sendable {
 	{
 		let context = try await openAndInit(device)
 		defer { context.close() }
-
-		let coreRequest = swiftfido2Core.AssertionRequest(
-			rpId: request.rpId,
-			clientDataHash: request.clientDataHash,
-			allowCredentials: request.allowCredentials.map {
-				swiftfido2Core.CredentialDescriptor(id: $0.id, type: $0.type)
-			},
-			userPresence: request.userPresence,
-			userVerification: request.userVerification
-		)
-
-		let coreResponse = try await core.getAssertion(context, request: coreRequest)
-
-		return AssertionResponse(
-			credentialId: coreResponse.credentialId,
-			authData: coreResponse.authData,
-			signature: coreResponse.signature,
-			userHandle: coreResponse.userHandle
-		)
-	}
-
-	/// Closes a device and releases resources.
-	public func close(_ device: FidoDevice) {
-		// Device context is opened per-operation in the explicit API,
-		// so this is a no-op currently. Reserved for future persistent connections.
+		return try await core.getAssertion(context, request: request)
 	}
 
 	// MARK: - Internal

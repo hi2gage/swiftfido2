@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import swiftfido2Core
 
 /// An opaque handle representing a connected FIDO2 hardware security key.
 public struct FidoDevice: Sendable {
