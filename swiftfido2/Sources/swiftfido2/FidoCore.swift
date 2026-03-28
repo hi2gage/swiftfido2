@@ -9,14 +9,13 @@ import Foundation
 import IOKit
 import SwiftCBOR
 
-final class FidoCore: Sendable {
-
-	init() {}
+enum FidoCore {
 
 	// MARK: - CTAPHID Init
 
-	func initializeDevice(_ context: UninitializedFidoContext) async throws -> FidoDeviceContext
-	{
+	static func initializeDevice(
+		_ context: UninitializedFidoContext
+	) async throws -> FidoDeviceContext {
 		let nonce = NonceGenerator.randomBytes(count: CTAPHIDSpec.nonceLength)
 
 		let initFrame = CTAPHIDFramer.buildInitialFrame(
@@ -39,7 +38,7 @@ final class FidoCore: Sendable {
 
 	// MARK: - GetInfo
 
-	func getInfo(_ context: FidoDeviceContext) async throws -> GetInfoResult {
+	static func getInfo(_ context: FidoDeviceContext) async throws -> GetInfoResult {
 		let payload = Data([0x04])  // authenticatorGetInfo command byte
 
 		let frame = CTAPHIDCborFrame(
@@ -62,7 +61,7 @@ final class FidoCore: Sendable {
 
 	// MARK: - GetAssertion
 
-	func getAssertion(
+	static func getAssertion(
 		_ context: FidoDeviceContext,
 		request: AssertionRequest
 	) async throws -> AssertionResponse {

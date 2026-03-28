@@ -27,8 +27,6 @@ import Foundation
 /// ```
 public final class FidoClient: Sendable {
 
-	private let core = FidoCore()
-
 	public init() {}
 
 	// MARK: - Simple API
@@ -70,7 +68,7 @@ public final class FidoClient: Sendable {
 	public func getInfo(_ device: FidoDevice) async throws -> DeviceInfo {
 		let context = try await openAndInit(device)
 		defer { context.close() }
-		let result = try await core.getInfo(context)
+		let result = try await FidoCore.getInfo(context)
 		return DeviceInfo(from: result)
 	}
 
@@ -82,13 +80,13 @@ public final class FidoClient: Sendable {
 	) async throws -> AssertionResponse {
 		let context = try await openAndInit(device)
 		defer { context.close() }
-		return try await core.getAssertion(context, request: request)
+		return try await FidoCore.getAssertion(context, request: request)
 	}
 
 	// MARK: - Internal
 
 	private func openAndInit(_ device: FidoDevice) async throws -> FidoDeviceContext {
 		let uninitContext = try FidoDeviceDiscovery.open(device.raw)
-		return try await core.initializeDevice(uninitContext)
+		return try await FidoCore.initializeDevice(uninitContext)
 	}
 }
