@@ -7,8 +7,8 @@
 
 import IOKit
 
-package enum FidoDeviceDiscovery {
-	package static func discoverDevices() throws -> [UninitializedFidoDevice] {
+public enum FidoDeviceDiscovery {
+	public static func discoverDevices() throws -> [UninitializedFidoDevice] {
 		let manager = IOHIDManagerCreate(kCFAllocatorDefault, 0)
 
 		IOHIDManagerSetDeviceMatching(manager, nil)
@@ -23,7 +23,7 @@ package enum FidoDeviceDiscovery {
 		}
 	}
 
-	package static func open(_ device: UninitializedFidoDevice) throws
+	public static func open(_ device: UninitializedFidoDevice) throws
 		-> UninitializedFidoContext
 	{
 		let hid = device.deviceRef

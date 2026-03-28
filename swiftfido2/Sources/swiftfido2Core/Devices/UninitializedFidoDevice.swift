@@ -9,13 +9,13 @@ import Foundation
 import IOKit
 
 /// Represents a raw HID device that hasn't been assigned a CTAPHID channel yet
-package struct UninitializedFidoDevice: @unchecked Sendable {
-	package let deviceRef: IOHIDDevice
-	package let vendorId: UInt16
-	package let productId: UInt16
-	package let productName: String
-	package let inputReportSize: Int
-	package let outputReportSize: Int
+public struct UninitializedFidoDevice: @unchecked Sendable {
+	public let deviceRef: IOHIDDevice
+	public let vendorId: UInt16
+	public let productId: UInt16
+	public let productName: String
+	public let inputReportSize: Int
+	public let outputReportSize: Int
 }
 
 extension UninitializedFidoDevice {

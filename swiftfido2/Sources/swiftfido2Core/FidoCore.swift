@@ -10,13 +10,13 @@ import Foundation
 import IOKit
 import SwiftCBOR
 
-package final class FidoCore: Sendable {
+public final class FidoCore: Sendable {
 
-	package init() {}
+	public init() {}
 
 	// MARK: - CTAPHID Init
 
-	package func initializeDevice(_ context: UninitializedFidoContext) async throws
+	public func initializeDevice(_ context: UninitializedFidoContext) async throws
 		-> FidoDeviceContext
 	{
 		let nonce = NonceGenerator.randomBytes(count: CTAPHIDSpec.nonceLength)
@@ -41,7 +41,7 @@ package final class FidoCore: Sendable {
 
 	// MARK: - GetInfo
 
-	package func getInfo(_ context: FidoDeviceContext) async throws -> GetInfoResult {
+	public func getInfo(_ context: FidoDeviceContext) async throws -> GetInfoResult {
 		let payload = Data([0x04])  // authenticatorGetInfo command byte
 
 		let frame = CTAPHIDCborFrame(
@@ -64,7 +64,7 @@ package final class FidoCore: Sendable {
 
 	// MARK: - GetAssertion
 
-	package func getAssertion(
+	public func getAssertion(
 		_ context: FidoDeviceContext,
 		request: AssertionRequest
 	) async throws -> AssertionResponse {
@@ -94,14 +94,14 @@ package final class FidoCore: Sendable {
 
 // MARK: - Assertion Request
 
-package struct AssertionRequest: Sendable {
-	package let rpId: String
-	package let clientDataHash: Data
-	package let allowCredentials: [CredentialDescriptor]
-	package let userPresence: Bool
-	package let userVerification: Bool
+public struct AssertionRequest: Sendable {
+	public let rpId: String
+	public let clientDataHash: Data
+	public let allowCredentials: [CredentialDescriptor]
+	public let userPresence: Bool
+	public let userVerification: Bool
 
-	package init(
+	public init(
 		rpId: String,
 		clientDataHash: Data,
 		allowCredentials: [CredentialDescriptor] = [],
@@ -144,11 +144,11 @@ package struct AssertionRequest: Sendable {
 	}
 }
 
-package struct CredentialDescriptor: Sendable {
-	package let type: String
-	package let id: Data
+public struct CredentialDescriptor: Sendable {
+	public let type: String
+	public let id: Data
 
-	package init(id: Data, type: String = "public-key") {
+	public init(id: Data, type: String = "public-key") {
 		self.type = type
 		self.id = id
 	}
@@ -156,12 +156,12 @@ package struct CredentialDescriptor: Sendable {
 
 // MARK: - Assertion Response
 
-package struct AssertionResponse: Sendable {
-	package let credentialId: Data
-	package let authData: Data
-	package let signature: Data
-	package let userHandle: Data?
-	package let numberOfCredentials: UInt64?
+public struct AssertionResponse: Sendable {
+	public let credentialId: Data
+	public let authData: Data
+	public let signature: Data
+	public let userHandle: Data?
+	public let numberOfCredentials: UInt64?
 
 	init(raw: Data) throws {
 		guard raw.count > 1 else {
@@ -220,13 +220,13 @@ package struct AssertionResponse: Sendable {
 
 // MARK: - GetInfo Result
 
-package struct GetInfoResult: Sendable {
-	package let versions: [String]
-	package let extensions: [String]?
-	package let aaguid: Data
-	package let options: [String: Bool]
-	package let maxMsgSize: UInt64?
-	package let pinProtocols: [UInt64]?
+public struct GetInfoResult: Sendable {
+	public let versions: [String]
+	public let extensions: [String]?
+	public let aaguid: Data
+	public let options: [String: Bool]
+	public let maxMsgSize: UInt64?
+	public let pinProtocols: [UInt64]?
 
 	init(raw: Data) throws {
 		guard raw.count > 1 else {
@@ -294,7 +294,7 @@ package struct GetInfoResult: Sendable {
 
 // MARK: - Errors
 
-package enum Ctap2ResponseError: Error {
+public enum Ctap2ResponseError: Error {
 	case tooShort
 	case status(UInt8)
 	case invalidCBOR

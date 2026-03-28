@@ -7,7 +7,7 @@
 
 import Foundation
 
-package enum CTAPHIDFramer {
+public enum CTAPHIDFramer {
 	static func buildInitialFrame(
 		channelId: UInt32,
 		nonce: Data,
