@@ -15,8 +15,7 @@ final class FidoCore: Sendable {
 
 	// MARK: - CTAPHID Init
 
-	func initializeDevice(_ context: UninitializedFidoContext) async throws
-		-> FidoDeviceContext
+	func initializeDevice(_ context: UninitializedFidoContext) async throws -> FidoDeviceContext
 	{
 		let nonce = NonceGenerator.randomBytes(count: CTAPHIDSpec.nonceLength)
 

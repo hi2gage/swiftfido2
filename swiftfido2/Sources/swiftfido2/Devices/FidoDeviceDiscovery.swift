@@ -23,9 +23,9 @@ public enum FidoDeviceDiscovery {
 		}
 	}
 
-	public static func open(_ device: UninitializedFidoDevice) throws
-		-> UninitializedFidoContext
-	{
+	public static func open(
+		_ device: UninitializedFidoDevice
+	) throws -> UninitializedFidoContext {
 		let hid = device.deviceRef
 
 		let openResult = IOHIDDeviceOpen(hid, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))

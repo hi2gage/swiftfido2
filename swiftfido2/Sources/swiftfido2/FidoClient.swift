@@ -76,9 +76,10 @@ public final class FidoClient: Sendable {
 
 	/// Sends a GetAssertion command to the device.
 	/// The user will need to touch the key when it blinks.
-	public func getAssertion(_ device: FidoDevice, request: AssertionRequest) async throws
-		-> AssertionResponse
-	{
+	public func getAssertion(
+		_ device: FidoDevice,
+		request: AssertionRequest
+	) async throws -> AssertionResponse {
 		let context = try await openAndInit(device)
 		defer { context.close() }
 		return try await core.getAssertion(context, request: request)
